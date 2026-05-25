@@ -42,7 +42,6 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
         name: PrefixedName,
         tower_height: float,
         rotor_blade_length: float = 0.0,
-        base_size: float = 1.0,
         parent_T_connection: HomogeneousTransformationMatrix = None,
     ):
         """
@@ -78,7 +77,7 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
         green = Color(0, 1, 0)
 
         # Tower Base
-        base_box = Box(scale=Scale(base_size, base_size, 0.2), color=brown)
+        base_box = Box(scale=Scale(tower_height/3, tower_height/3, 0.2), color=brown)
         base_body = Body(name=PrefixedName(f"{name}_tower_base"),
                         visual=ShapeCollection([base_box]),
                         collision=ShapeCollection([base_box]))
@@ -390,24 +389,22 @@ def main():
         # =====================================================================
         # 2ed wind torbine
         # =====================================================================
-        wind2 = WindTurbine.create_with_new_body_in_world(
-            world=world,
-            parent=root,
-            name=PrefixedName("wind2"),
-            tower_height=3.0,
-            base_size=1.0,
-            parent_T_connection=HomogeneousTransformationMatrix.from_xyz_rpy(x=5, y=5, z=0)
-
-        )
-
-        wind3 = WindTurbine.create_with_new_body_in_world(
-            world=world,
-            parent=root,
-            name=PrefixedName("wind3"),
-            tower_height=10.0,
-            base_size=5.0,
-            parent_T_connection=HomogeneousTransformationMatrix.from_xyz_rpy(x=-5, y=5, z=0)
-        )
+        # wind2 = WindTurbine.create_with_new_body_in_world(
+        #     world=world,
+        #     parent=root,
+        #     name=PrefixedName("wind2"),
+        #     tower_height=3.0,
+        #     parent_T_connection=HomogeneousTransformationMatrix.from_xyz_rpy(x=5, y=5, z=0.1)
+        #
+        # )
+        #
+        # wind3 = WindTurbine.create_with_new_body_in_world(
+        #     world=world,
+        #     parent=root,
+        #     name=PrefixedName("wind3"),
+        #     tower_height=10.0,
+        #     parent_T_connection=HomogeneousTransformationMatrix.from_xyz_rpy(x=-5, y=5, z=0.1, yaw=np.pi/2)
+        # )
 
     # =====================================================================
     # ROS2 Node and Visualization Publisher
