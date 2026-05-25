@@ -40,16 +40,13 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
         world: World,
         parent: Body,
         name: PrefixedName,
-        tower_height: float = 3.0,
-        tower_width: float = 0.3,
-        nacelle_length: float = 1.05,
-        rotor_blade_count: int = 3,
-        rotor_blade_length: float = 1.5,
+        tower_height: float,
+        rotor_blade_length: float = 0.0,
         base_size: float = 1.0,
         parent_T_connection: HomogeneousTransformationMatrix = None,
     ):
         """
-        Create a complete wind turbine structure with customizable parameters.
+        Create a complete wind turbine structure with 3 rotor blades.
 
         Args:
             world: The World instance
@@ -58,14 +55,20 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
             tower_height: Height of the tower
             tower_width: Width/thickness of the tower
             nacelle_length: Length of the nacelle
-            rotor_blade_count: Number of rotor blades (typically 3)
             rotor_blade_length: Length of each rotor blade
             base_size: Size of the tower base
-            hub_offset: Distance from nacelle to hub center
             parent_T_connection: Transform from parent to turbine base
         """
         if parent_T_connection is None:
             parent_T_connection = HomogeneousTransformationMatrix.from_xyz_rpy(x=0, y=0, z=0.2)
+
+        if rotor_blade_length == 0:
+            rotor_blade_length = tower_height*(8475/15797)
+
+        elements_conns = []
+        elements_annotations = []
+
+        nacelle_length = tower_height * (1500/15797)
 
         # Define colors
         red = Color(1, 0, 0)
@@ -82,8 +85,11 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
         base_conn = FixedConnection(parent=parent, child=base_body,
                                    parent_T_connection_expression=parent_T_connection)
         base_annotation = TowerBase(root=base_body)
+        elements_conns.append(base_conn)
+        elements_annotations.append(base_annotation)
 
         # Tower
+        tower_width = tower_height * (901/15797)
         tower_cylinder = Cylinder(width=tower_width, height=tower_height, color=red)
         tower_body = Body(name=PrefixedName(f"{name}_tower"),
                          visual=ShapeCollection([tower_cylinder]),
@@ -92,68 +98,83 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
                                     parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
                                         x=0, y=0, z=tower_height/2 + 0.1))
         tower_annotation = Tower(root=tower_body)
+        elements_conns.append(tower_conn)
+        elements_annotations.append(tower_annotation)
 
         # Nacelle
-        nacelle_box = Box(scale=Scale(nacelle_length, tower_width, 0.2), color=green)
+        nacelle_height = tower_height * (678/15797)
+        nacelle_box = Box(scale=Scale(nacelle_length, tower_width, nacelle_height), color=green)
         nacelle_body = Body(name=PrefixedName(f"{name}_nacelle"),
                            visual=ShapeCollection([nacelle_box]),
                            collision=ShapeCollection([nacelle_box]))
         nacelle_conn = FixedConnection(parent=tower_body, child=nacelle_body,
                                       parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                                          x=-nacelle_length/4, y=0, z=tower_height/2 + 0.1))
+                                          x=-nacelle_length/4, y=0, z=(tower_height/2) + (nacelle_height/2)))
         nacelle_annotation = Nacelle(root=nacelle_body)
+        elements_conns.append(nacelle_conn)
+        elements_annotations.append(nacelle_annotation)
 
         # Hub
-        hub_cylinder = Box(scale=Scale(0.2, tower_width, 0.2), color=blue)
+        hub_box = Box(scale=Scale(tower_width, tower_width, nacelle_height), color=blue)
         hub_body = Body(name=PrefixedName(f"{name}_hub"),
-                       visual=ShapeCollection([hub_cylinder]),
-                       collision=ShapeCollection([hub_cylinder]))
+                       visual=ShapeCollection([hub_box]),
+                       collision=ShapeCollection([hub_box]))
         hub_conn = RevoluteConnection.create_with_dofs(
             world=world, parent=nacelle_body, child=hub_body, axis=cas.Vector3.X(),
             parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=nacelle_length/2 + 0.1, y=0, z=0))
+                x=nacelle_length/2 + (tower_width /2)))
         hub_annotation = Hub(root=hub_body)
+        elements_conns.append(hub_conn)
+        elements_annotations.append(hub_annotation)
 
-        # Rotor Blades
-        blade_connections = []
-        blade_annotations = []
-        angle_increment = 2 * np.pi / rotor_blade_count
 
-        for i in range(rotor_blade_count):
-            angle = i * angle_increment
-            blade_box = Box(scale=Scale(0.1, 0.2, rotor_blade_length), color=white)
-            blade_body = Body(name=PrefixedName(f"{name}_rotor_blade{i+1}"),
-                            visual=ShapeCollection([blade_box]),
-                            collision=ShapeCollection([blade_box]))
+        # Blade 1
+        blade1_box = Box(scale=Scale(0.1, 0.2, rotor_blade_length), color=white)
+        blade1_body = Body(name=PrefixedName(f"{name}_rotor_blade1"),
+                          visual=ShapeCollection([blade1_box]),
+                          collision=ShapeCollection([blade1_box]))
+        blade1_conn = RevoluteConnection.create_with_dofs(
+            world=world, parent=hub_body, child=blade1_body,
+            parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                y=-4.5*tower_width, z=2.5*tower_width, roll=-np.pi*2/3),  #x=-0.05, y=-(rotor_blade_length)/2, z=0.45, roll=-np.pi*2/3),
+            axis=cas.Vector3.Z())
+        blade1_annotation = RotorBlades(root=blade1_body, name=PrefixedName(f"{name}_rotor_blade1"))
+        elements_conns.append(blade1_conn)
+        elements_annotations.append(blade1_annotation)
 
-            # Position blades around the hub
-            y_offset = (rotor_blade_length/2 + 0.1) * np.cos(angle)
-            z_offset = (rotor_blade_length/2 + 0.1) * np.sin(angle)
+        # Blade 2
+        blade2_box = Box(scale=Scale(0.1, 0.2, rotor_blade_length), color=white)
+        blade2_body = Body(name=PrefixedName(f"{name}_rotor_blade2"),
+                          visual=ShapeCollection([blade2_box]),
+                          collision=ShapeCollection([blade2_box]))
+        blade2_conn = RevoluteConnection.create_with_dofs(
+            world=world, parent=hub_body, child=blade2_body,
+            parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+               y=4.5*tower_width, z=2.5*tower_width, roll=np.pi*2/3),
+            axis=cas.Vector3.Z())
+        blade2_annotation = RotorBlades(root=blade2_body, name=PrefixedName(f"{name}_rotor_blade2"))
+        elements_conns.append(blade2_conn)
+        elements_annotations.append(blade2_annotation)
 
-            blade_conn = RevoluteConnection.create_with_dofs(
-                world=world, parent=hub_body, child=blade_body,
-                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=-0.05, y=y_offset, z=z_offset, roll=angle, pitch=0.0, yaw=0.0),
-                axis=cas.Vector3.Z())
-            blade_annotation = RotorBlades(root=blade_body, name=PrefixedName(f"{name}_rotor_blade{i+1}"))
-
-            blade_connections.append(blade_conn)
-            blade_annotations.append(blade_annotation)
+        # Blade 3
+        blade3_box = Box(scale=Scale(0.1, 0.2, rotor_blade_length), color=white)
+        blade3_body = Body(name=PrefixedName(f"{name}_rotor_blade3"),
+                          visual=ShapeCollection([blade3_box]),
+                          collision=ShapeCollection([blade3_box]))
+        blade3_conn = RevoluteConnection.create_with_dofs(
+            world=world, parent=hub_body, child=blade3_body,
+            parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                z=-(rotor_blade_length/2) - (nacelle_height/2)), # x=-0.05, y=0.0, z=-(rotor_blade_length)/2)
+            axis=cas.Vector3.Z())
+        blade3_annotation = RotorBlades(root=blade3_body, name=PrefixedName(f"{name}_rotor_blade3"))
+        elements_conns.append(blade3_conn)
+        elements_annotations.append(blade3_annotation)
 
         # Add all to world
-        world.add_connection(base_conn)
-        world.add_connection(tower_conn)
-        world.add_connection(nacelle_conn)
-        world.add_connection(hub_conn)
-        for blade_conn in blade_connections:
-            world.add_connection(blade_conn)
-
-        world.add_semantic_annotation(base_annotation)
-        world.add_semantic_annotation(tower_annotation)
-        world.add_semantic_annotation(nacelle_annotation)
-        world.add_semantic_annotation(hub_annotation)
-        for blade_annotation in blade_annotations:
-            world.add_semantic_annotation(blade_annotation)
+        for conn in elements_conns:
+            world.add_connection(conn)
+        for annotation in elements_annotations:
+            world.add_semantic_annotation(annotation)
 
         return hub_body  # Return hub as the main body
 
@@ -374,13 +395,18 @@ def main():
             parent=root,
             name=PrefixedName("wind2"),
             tower_height=3.0,
-            tower_width=0.3,
-            nacelle_length=1.05,
-            rotor_blade_count=3,
-            rotor_blade_length=1.5,
             base_size=1.0,
             parent_T_connection=HomogeneousTransformationMatrix.from_xyz_rpy(x=5, y=5, z=0)
 
+        )
+
+        wind3 = WindTurbine.create_with_new_body_in_world(
+            world=world,
+            parent=root,
+            name=PrefixedName("wind3"),
+            tower_height=10.0,
+            base_size=5.0,
+            parent_T_connection=HomogeneousTransformationMatrix.from_xyz_rpy(x=-5, y=5, z=0)
         )
 
     # =====================================================================
