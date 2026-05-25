@@ -8,6 +8,7 @@ from time import sleep
 
 import numpy as np
 import rclpy
+from semantic_digital_twin.adapters.ros.visualization.viz_marker import VizMarkerPublisher
 
 from semantic_annotations import Tower, Nacelle, RotorBlades, Hub, TowerBase
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import VizMarkerPublisher
@@ -98,8 +99,8 @@ def main():
         world.add_degree_of_freedom(rotor_blade_dof)
 
         # commented out, because the world doesn't like DoFs that are not linked to a connection
-        # wind_speed = DegreeOfFreedom(name=PrefixedName('wind_speed'))
-        # world.add_degree_of_freedom(wind_speed)
+        wind_speed = DegreeOfFreedom(name=PrefixedName('wind_speed'))
+        world.add_degree_of_freedom(wind_speed)
 
         # =====================================================================
         # Tower Base
@@ -136,20 +137,36 @@ def main():
         # =====================================================================
         # Nacelle
         # =====================================================================
-        body3 = Box(scale=Scale(0.4, 0.3, 0.2), color=green)
+        body3 = Box(scale=Scale(1.05, 0.3, 0.2), color=green)
         visual = ShapeCollection([body3])
         collision = ShapeCollection([body3])
         nacelle_body = Body(name=PrefixedName("nacelle_body"), visual=visual, collision=collision)
 
-        root_C_body3 = RevoluteConnection.create_with_dofs(
-            world=world,
+        root_C_body3 = FixedConnection(
             parent=tower_body,
             child=nacelle_body,
-            axis=cas.Vector3.X(),
-            parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(x=0.3, y=-0.0, z=1.4),
+            parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(x=-0.25, y=-0.0, z=1.6),
         )
         nacelle = Nacelle(root=nacelle_body)
         world.add_semantic_annotation(nacelle)
+
+        # =====================================================================
+        # Hub
+        # =====================================================================
+        body7 = Box(scale=Scale(0.2, 0.3, 0.2), color=blue)
+        visual = ShapeCollection([body7])
+        collision = ShapeCollection([body7])
+        hub_body = Body(name=PrefixedName("hub_body"), visual=visual, collision=collision)
+
+        root_C_body7 = RevoluteConnection.create_with_dofs(
+            world=world,
+            parent=nacelle_body,
+            child=hub_body,
+            axis=cas.Vector3.X(),
+            parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(x=0.625, y=-0.0, z=0.0)
+        )
+        hub = Hub(root=hub_body)
+        world.add_semantic_annotation(hub)
 
         # =====================================================================
         # Rotor Blade 1 (left)
@@ -162,10 +179,10 @@ def main():
 
         root_C_body4 = RevoluteConnection.create_with_dofs(
             world=world,
-            parent=nacelle_body,
+            parent=hub_body,
             child=blade1,
             parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=0.10, y=-0.78, z=0.50, roll=1.0, pitch=0.0, yaw=0.0
+                x=-0.05, y=-0.78, z=0.50, roll=1.0, pitch=0.0, yaw=0.0
             ),
             axis=cas.Vector3.Z()
         )
@@ -182,10 +199,10 @@ def main():
 
         root_C_body5 = RevoluteConnection.create_with_dofs(
             world=world,
-            parent=nacelle_body,
+            parent=hub_body,
             child=blade2,
             parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=0.10, y=0.75, z=0.55, roll=2.2, pitch=0.0, yaw=0.0
+                x=-0.05, y=0.75, z=0.55, roll=2.2, pitch=0.0, yaw=0.0
             ),
             axis = cas.Vector3.Z(),
         )
@@ -202,31 +219,17 @@ def main():
 
         root_C_body6 = RevoluteConnection.create_with_dofs(
             world=world,
-            parent=nacelle_body,
+            parent=hub_body,
             child=blade3,
             parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=0.1, y=0.0, z=-0.85, roll=0.0, pitch=0.0, yaw=0.0
+                x=-0.05, y=0.0, z=-0.85, roll=0.0, pitch=0.0, yaw=0.0
             ),
             axis=cas.Vector3.Z(),
         )
         rotorblade3 = RotorBlades(root=blade3)
         world.add_semantic_annotation(rotorblade3)
 
-        # =====================================================================
-        # Hub
-        # =====================================================================
-        body7 = Box(scale=Scale(0.2, 0.3, 0.2), color=blue)
-        visual = ShapeCollection([body7])
-        collision = ShapeCollection([body7])
-        hub_body = Body(name=PrefixedName("hub_body"), visual=visual, collision=collision)
 
-        root_C_body7 = FixedConnection(
-            parent=nacelle_body,
-            child=hub_body,
-            parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(x=0.30, y=-0.0, z=0.0)
-        )
-        hub = Hub(root=hub_body)
-        world.add_semantic_annotation(hub)
 
         # =====================================================================
         # Add Connections to the World
@@ -253,10 +256,13 @@ def main():
 
 
     dt = 0.05
-    world.state[root_C_body3.dof_id].position = 0.5
+    world.state[root_C_body7.dof_id].position = 0.5
     return world
 
-    # expr = 2 * wind_speed.variables.velocity * rotor_blade_dof.variables.position
+    expr = 2 * wind_speed.variables.velocity * rotor_blade_dof.variables.position
+
+
+
     # while True:
     #     world.apply_control_commands(np.array([1.0, 0.0, 0.0, 0.0]), dt, Derivatives.velocity)
     #     sleep(0.1)
