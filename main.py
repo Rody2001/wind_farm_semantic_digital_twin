@@ -19,7 +19,7 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection, ActiveConnection, ActiveConnection1DOF, \
     HasUpdateState, RevoluteConnection
 from semantic_digital_twin.world_description.degree_of_freedom import VelocityVariable, DegreeOfFreedom
-from semantic_digital_twin.world_description.geometry import Box, Scale, Color
+from semantic_digital_twin.world_description.geometry import Box, Scale, Color, Cylinder
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -33,6 +33,129 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
     rotor_dof: DegreeOfFreedom = field(default=None, kw_only=True)
     wind_dof: DegreeOfFreedom = field(default=None, kw_only=True)
     rotor_blade_angle_dof: DegreeOfFreedom = field(default=None, kw_only=True)
+
+    @classmethod
+    def create_with_new_body_in_world(
+        cls,
+        world: World,
+        parent: Body,
+        name: PrefixedName,
+        tower_height: float = 3.0,
+        tower_width: float = 0.3,
+        nacelle_length: float = 1.05,
+        rotor_blade_count: int = 3,
+        rotor_blade_length: float = 1.5,
+        base_size: float = 1.0,
+        parent_T_connection: HomogeneousTransformationMatrix = None,
+    ):
+        """
+        Create a complete wind turbine structure with customizable parameters.
+
+        Args:
+            world: The World instance
+            parent: Parent body to attach the turbine to
+            name: Base name for the turbine components
+            tower_height: Height of the tower
+            tower_width: Width/thickness of the tower
+            nacelle_length: Length of the nacelle
+            rotor_blade_count: Number of rotor blades (typically 3)
+            rotor_blade_length: Length of each rotor blade
+            base_size: Size of the tower base
+            hub_offset: Distance from nacelle to hub center
+            parent_T_connection: Transform from parent to turbine base
+        """
+        if parent_T_connection is None:
+            parent_T_connection = HomogeneousTransformationMatrix.from_xyz_rpy(x=0, y=0, z=0.2)
+
+        # Define colors
+        red = Color(1, 0, 0)
+        white = Color(1, 1, 1)
+        blue = Color(0, 0, 1)
+        brown = Color(1, 0.5, 0.25)
+        green = Color(0, 1, 0)
+
+        # Tower Base
+        base_box = Box(scale=Scale(base_size, base_size, 0.2), color=brown)
+        base_body = Body(name=PrefixedName(f"{name}_tower_base"),
+                        visual=ShapeCollection([base_box]),
+                        collision=ShapeCollection([base_box]))
+        base_conn = FixedConnection(parent=parent, child=base_body,
+                                   parent_T_connection_expression=parent_T_connection)
+        base_annotation = TowerBase(root=base_body)
+
+        # Tower
+        tower_cylinder = Cylinder(width=tower_width, height=tower_height, color=red)
+        tower_body = Body(name=PrefixedName(f"{name}_tower"),
+                         visual=ShapeCollection([tower_cylinder]),
+                         collision=ShapeCollection([tower_cylinder]))
+        tower_conn = FixedConnection(parent=base_body, child=tower_body,
+                                    parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                                        x=0, y=0, z=tower_height/2 + 0.1))
+        tower_annotation = Tower(root=tower_body)
+
+        # Nacelle
+        nacelle_box = Box(scale=Scale(nacelle_length, tower_width, 0.2), color=green)
+        nacelle_body = Body(name=PrefixedName(f"{name}_nacelle"),
+                           visual=ShapeCollection([nacelle_box]),
+                           collision=ShapeCollection([nacelle_box]))
+        nacelle_conn = FixedConnection(parent=tower_body, child=nacelle_body,
+                                      parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                                          x=-nacelle_length/4, y=0, z=tower_height/2 + 0.1))
+        nacelle_annotation = Nacelle(root=nacelle_body)
+
+        # Hub
+        hub_cylinder = Box(scale=Scale(0.2, tower_width, 0.2), color=blue)
+        hub_body = Body(name=PrefixedName(f"{name}_hub"),
+                       visual=ShapeCollection([hub_cylinder]),
+                       collision=ShapeCollection([hub_cylinder]))
+        hub_conn = RevoluteConnection.create_with_dofs(
+            world=world, parent=nacelle_body, child=hub_body, axis=cas.Vector3.X(),
+            parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=nacelle_length/2 + 0.1, y=0, z=0))
+        hub_annotation = Hub(root=hub_body)
+
+        # Rotor Blades
+        blade_connections = []
+        blade_annotations = []
+        angle_increment = 2 * np.pi / rotor_blade_count
+
+        for i in range(rotor_blade_count):
+            angle = i * angle_increment
+            blade_box = Box(scale=Scale(0.1, 0.2, rotor_blade_length), color=white)
+            blade_body = Body(name=PrefixedName(f"{name}_rotor_blade{i+1}"),
+                            visual=ShapeCollection([blade_box]),
+                            collision=ShapeCollection([blade_box]))
+
+            # Position blades around the hub
+            y_offset = (rotor_blade_length/2 + 0.1) * np.cos(angle)
+            z_offset = (rotor_blade_length/2 + 0.1) * np.sin(angle)
+
+            blade_conn = RevoluteConnection.create_with_dofs(
+                world=world, parent=hub_body, child=blade_body,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=-0.05, y=y_offset, z=z_offset, roll=angle, pitch=0.0, yaw=0.0),
+                axis=cas.Vector3.Z())
+            blade_annotation = RotorBlades(root=blade_body, name=PrefixedName(f"{name}_rotor_blade{i+1}"))
+
+            blade_connections.append(blade_conn)
+            blade_annotations.append(blade_annotation)
+
+        # Add all to world
+        world.add_connection(base_conn)
+        world.add_connection(tower_conn)
+        world.add_connection(nacelle_conn)
+        world.add_connection(hub_conn)
+        for blade_conn in blade_connections:
+            world.add_connection(blade_conn)
+
+        world.add_semantic_annotation(base_annotation)
+        world.add_semantic_annotation(tower_annotation)
+        world.add_semantic_annotation(nacelle_annotation)
+        world.add_semantic_annotation(hub_annotation)
+        for blade_annotation in blade_annotations:
+            world.add_semantic_annotation(blade_annotation)
+
+        return hub_body  # Return hub as the main body
 
     def add_to_world(self, world: World):
 
@@ -172,7 +295,7 @@ def main():
         # Rotor Blade 1 (left)
         # =====================================================================
 
-        body4 = Box(scale=Scale(0.1, 0.2, 1.5), color=white)
+        body4 = Box(scale=Scale(0.1, 0.2, 1.5), color=white)#!#
         visual = ShapeCollection([body4])
         collision = ShapeCollection([body4])
         blade1 = Body(name=PrefixedName("rotor_blade1"), visual=visual, collision=collision)
@@ -243,6 +366,23 @@ def main():
         world.add_connection(root_C_body6)
         world.add_connection(root_C_body7)
 
+        # =====================================================================
+        # 2ed wind torbine
+        # =====================================================================
+        wind2 = WindTurbine.create_with_new_body_in_world(
+            world=world,
+            parent=root,
+            name=PrefixedName("wind2"),
+            tower_height=3.0,
+            tower_width=0.3,
+            nacelle_length=1.05,
+            rotor_blade_count=3,
+            rotor_blade_length=1.5,
+            base_size=1.0,
+            parent_T_connection=HomogeneousTransformationMatrix.from_xyz_rpy(x=5, y=5, z=0)
+
+        )
+
     # =====================================================================
     # ROS2 Node and Visualization Publisher
     # =====================================================================
@@ -259,7 +399,7 @@ def main():
     world.state[root_C_body7.dof_id].position = 0.5
     return world
 
-    expr = 2 * wind_speed.variables.velocity * rotor_blade_dof.variables.position
+    #expr = 2 * wind_speed.variables.velocity * rotor_blade_dof.variables.position
 
 
 
