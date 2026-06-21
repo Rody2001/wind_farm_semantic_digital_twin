@@ -33,6 +33,7 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
     rotor_dof: DegreeOfFreedom = field(default=None, kw_only=True)
     wind_dof: DegreeOfFreedom = field(default=None, kw_only=True)
     rotor_blade_angle_dof: DegreeOfFreedom = field(default=None, kw_only=True)
+    #minimus_rec_wind_spped: float
 
     @classmethod
     def create_with_new_body_in_world(
@@ -68,6 +69,9 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
         elements_annotations = []
 
         nacelle_length = tower_height * (1500/15797)
+
+        blade_x = tower_height * (0.04 / 5)
+        blade_y = tower_height * (0.18/5)
 
         # Define colors
         red = Color(1, 0, 0)
@@ -128,7 +132,7 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
 
 
         # Blade 1
-        blade1_box = Box(scale=Scale(0.1, 0.2, rotor_blade_length), color=white)
+        blade1_box = Box(scale=Scale(blade_x, blade_y, rotor_blade_length), color=white)
         blade1_body = Body(name=PrefixedName(f"{name}_rotor_blade1"),
                           visual=ShapeCollection([blade1_box]),
                           collision=ShapeCollection([blade1_box]))
@@ -142,7 +146,7 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
         elements_annotations.append(blade1_annotation)
 
         # Blade 2
-        blade2_box = Box(scale=Scale(0.1, 0.2, rotor_blade_length), color=white)
+        blade2_box = Box(scale=Scale(blade_x, blade_y, rotor_blade_length), color=white)
         blade2_body = Body(name=PrefixedName(f"{name}_rotor_blade2"),
                           visual=ShapeCollection([blade2_box]),
                           collision=ShapeCollection([blade2_box]))
@@ -156,7 +160,7 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
         elements_annotations.append(blade2_annotation)
 
         # Blade 3
-        blade3_box = Box(scale=Scale(0.1, 0.2, rotor_blade_length), color=white)
+        blade3_box = Box(scale=Scale(blade_x, blade_y, rotor_blade_length), color=white)
         blade3_body = Body(name=PrefixedName(f"{name}_rotor_blade3"),
                           visual=ShapeCollection([blade3_box]),
                           collision=ShapeCollection([blade3_box]))
@@ -248,22 +252,38 @@ def main():
 
 
         # =====================================================================
-        # 2nd and 3rd wind turbines
+        # wind turbines
         # =====================================================================
-        wind2_hub = WindTurbine.create_with_new_body_in_world(
+        wind_turbine_hub_1 = WindTurbine.create_with_new_body_in_world(
             world=world,
             parent=root,
-            name=PrefixedName("wind2"),
+            name=PrefixedName("turbine1"),
             tower_height=3.0,
             parent_T_connection=HomogeneousTransformationMatrix.from_xyz_rpy(x=5, y=5, z=0.1)
         )
 
-        wind3_hub = WindTurbine.create_with_new_body_in_world(
+        wind_turbine_hub_2 = WindTurbine.create_with_new_body_in_world(
             world=world,
             parent=root,
-            name=PrefixedName("wind3"),
+            name=PrefixedName("turbine2"),
             tower_height=10.0,
             parent_T_connection=HomogeneousTransformationMatrix.from_xyz_rpy(x=-5, y=5, z=0.1, yaw=np.pi/2)
+        )
+
+        wind_turbine_hub_3 = WindTurbine.create_with_new_body_in_world(
+            world=world,
+            parent=root,
+            name=PrefixedName("turbine3"),
+            tower_height=1.0,
+            parent_T_connection=HomogeneousTransformationMatrix.from_xyz_rpy(z=0.1, yaw=np.pi)
+        )
+
+        wind_turbine_hub_4 = WindTurbine.create_with_new_body_in_world(
+            world=world,
+            parent=root,
+            name=PrefixedName("turbine4"),
+            tower_height=100.0,
+            parent_T_connection=HomogeneousTransformationMatrix.from_xyz_rpy(x=5, z=0.1, yaw=np.pi/2)
         )
 
 
@@ -278,21 +298,7 @@ def main():
     thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
     thread.start()
 
-
     return world
-
-    #expr = 2 * wind_speed.variables.velocity * rotor_blade_dof.variables.position
-
-    # Apply rotation to all wind turbine hubs
-    # while True:
-    #     for hub_dof_id in hub_dof_ids:
-    #         world.state[hub_dof_id].velocity = 1.0
-    #     #world.apply_control_commands(np.array([1.0, 0.0, 0.0, 0.0]), dt, Derivatives.velocity)
-    #     sleep(0.1)
-
-    # while True:
-    #     world.apply_control_commands(np.array([1.0, 0.0, 0.0, 0.0]), dt, Derivatives.velocity)
-    #     sleep(0.1)
 
 
 if __name__ == "__main__":

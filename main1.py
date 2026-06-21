@@ -25,10 +25,7 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
 
-# The farm definition + the one-button MuJoCo exporter live here.
-from wind_farm_export import WIND_FARM, export_wind_farm
-
-
+from wind_farm_export import WIND_FARM_A, export_wind_farm, ALL_FARMS, combined_specs
 
 
 @dataclass
@@ -251,13 +248,11 @@ def main():
         wind_speed = DegreeOfFreedom(name=PrefixedName('wind_speed'))
         world.add_degree_of_freedom(wind_speed)
 
-
-
         # =====================================================================
-        # wind turbines  (built from the single WIND_FARM source of truth)
+        # wind turbines  (built from ALL farms via combined_specs - one source of truth)
         # =====================================================================
-        turbine_hubs = []
-        for spec in WIND_FARM:
+        turbine_hubs = {}
+        for spec in combined_specs():
             hub = WindTurbine.create_with_new_body_in_world(
                 world=world,
                 parent=root,
@@ -267,7 +262,7 @@ def main():
                 parent_T_connection=HomogeneousTransformationMatrix.from_xyz_rpy(
                     x=spec.x, y=spec.y, z=spec.z, yaw=spec.yaw),
             )
-            turbine_hubs.append(hub)
+            turbine_hubs[spec.name] = hub
 
 
     # =====================================================================
@@ -283,14 +278,14 @@ def main():
 
     return world
 
-
-if __name__ == "__main__":
-    # ---- the button ----
-    # `python main.py --export`  -> just write the MuJoCo XML and exit (no ROS needed)
-    # `python main.py`           -> build the digital-twin world and publish to RViz2
-    if "--export" in sys.argv:
-        path = export_wind_farm(WIND_FARM, "wind_turbine_generated.xml")
-        print(f"Exported {len(WIND_FARM)} turbines -> {path.resolve()}")
-        print("Run it with:  python wind_turbine_sim.py --model wind_turbine_generated.xml")
-    else:
-        main()
+print(main().semantic_annotations)
+# if __name__ == "__main__":
+#     # ---- the button ----
+#     # `python main.py --export`  -> just write the MuJoCo XML and exit (no ROS needed)
+#     # `python main.py`           -> build the digital-twin world and publish to RViz2
+#     if "--export" in sys.argv:
+#         path = export_wind_farm(WIND_FARM_A, "wind_turbine_generated.xml")
+#         print(f"Exported {len(WIND_FARM_A)} turbines -> {path.resolve()}")
+#         print("Run it with:  python wind_turbine_sim.py --model wind_turbine_generated.xml")
+#     else:
+#         main()

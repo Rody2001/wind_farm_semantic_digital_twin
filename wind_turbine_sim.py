@@ -200,7 +200,9 @@ def run_viewer(model, data, driver, wind_speed):
         print(f"  wind = {state['speed']:.1f} m/s")
 
     with mujoco.viewer.launch_passive(model, data, key_callback=key_cb) as v:
-        v.cam.distance = 22
+        # frame the whole scene (works for one turbine or many farms)
+        v.cam.lookat[:] = model.stat.center
+        v.cam.distance = 1.4 * model.stat.extent
         v.cam.elevation = -12
         v.cam.azimuth = 120
         print_t = time.time()
