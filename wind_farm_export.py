@@ -50,27 +50,81 @@ class TurbineSpec:
 # ===================================================================
 # SINGLE SOURCE OF TRUTH
 # ===================================================================
-WIND_FARM_A: list[TurbineSpec] = [
-    TurbineSpec("turbine_A_1", tower_height=111.0, x=0,   z=0.1, yaw=math.pi),
-    TurbineSpec("turbine_A_2", tower_height=111.0, x=50,  z=0.1, yaw=math.pi),
-    TurbineSpec("turbine_A_3", tower_height=111.0, x=100, z=0.1, yaw=math.pi),
-    TurbineSpec("turbine_A_4", tower_height=111.0, x=150, z=0.1, yaw=math.pi),
-    TurbineSpec("turbine_A_5", tower_height=111.0, x=200, z=0.1, yaw=math.pi),
-    TurbineSpec("turbine_A_6", tower_height=111.0, x=250, z=0.1, yaw=math.pi),
+WIND_FARM_A_small: list[TurbineSpec] = [
+    TurbineSpec("turbine_A_small_1", tower_height=111.0, x=0,   z=0.1),
+    TurbineSpec("turbine_A_small_2", tower_height=111.0, x=50,  z=0.1),
+    TurbineSpec("turbine_A_small_3", tower_height=111.0, x=100, z=0.1),
+    TurbineSpec("turbine_A_small_4", tower_height=111.0, x=150, z=0.1),
+    TurbineSpec("turbine_A_small_5", tower_height=111.0, x=200, z=0.1),
+    TurbineSpec("turbine_A_small_6", tower_height=111.0, x=250, z=0.1),
 ]
-WIND_FARM_B: list[TurbineSpec] = [
-    TurbineSpec("turbine_B_1", tower_height=160.0, x=-50,  z=0.1, yaw=math.pi/2),
-    TurbineSpec("turbine_B_2", tower_height=160.0, x=-100, z=0.1, yaw=math.pi/2),
-    TurbineSpec("turbine_B_3", tower_height=160.0, x=-150, z=0.1, yaw=math.pi/2),
-    TurbineSpec("turbine_B_4", tower_height=160.0, x=-200, z=0.1, yaw=math.pi/2),
-    TurbineSpec("turbine_B_5", tower_height=160.0, x=-250, z=0.1, yaw=math.pi/2),
-    TurbineSpec("turbine_B_6", tower_height=160.0, x=-300, z=0.1, yaw=math.pi/2),
+WIND_FARM_A_big: list[TurbineSpec] = [
+    TurbineSpec("turbine_A_big_1", tower_height=160.0, x=0,  y=150, z=0.1),
+    TurbineSpec("turbine_A_big_2", tower_height=160.0, x=50, y=150, z=0.1),
+    TurbineSpec("turbine_A_big_3", tower_height=160.0, x=100,y=150, z=0.1),
+    TurbineSpec("turbine_A_big_4", tower_height=160.0, x=150,y=150, z=0.1),
+    TurbineSpec("turbine_A_big_5", tower_height=160.0, x=200,y=150, z=0.1),
+    TurbineSpec("turbine_A_big_6", tower_height=160.0, x=250,y=150, z=0.1),
+]
+WIND_FARM_B_small: list[TurbineSpec] = [
+    TurbineSpec("turbine_B_small_1", tower_height=111.0, x=-100, z=0.1, yaw=math.pi),
+    TurbineSpec("turbine_B_small_2", tower_height=111.0, x=-150, z=0.1, yaw=math.pi),
+    TurbineSpec("turbine_B_small_3", tower_height=111.0, x=-200, z=0.1, yaw=math.pi),
+    TurbineSpec("turbine_B_small_4", tower_height=111.0, x=-250, z=0.1, yaw=math.pi),
+    TurbineSpec("turbine_B_small_5", tower_height=111.0, x=-300, z=0.1, yaw=math.pi),
+    TurbineSpec("turbine_B_small_6", tower_height=111.0, x=-350, z=0.1, yaw=math.pi),
+]
+WIND_FARM_B_big: list[TurbineSpec] = [
+    TurbineSpec("turbine_B_big_1", tower_height=160.0, x=-100, y=150, z=0.1, yaw=math.pi),
+    TurbineSpec("turbine_B_big_2", tower_height=160.0, x=-150, y=150, z=0.1, yaw=math.pi),
+    TurbineSpec("turbine_B_big_3", tower_height=160.0, x=-200, y=150, z=0.1, yaw=math.pi),
+    TurbineSpec("turbine_B_big_4", tower_height=160.0, x=-250, y=150, z=0.1, yaw=math.pi),
+    TurbineSpec("turbine_B_big_5", tower_height=160.0, x=-300, y=150, z=0.1, yaw=math.pi),
+    TurbineSpec("turbine_B_big_6", tower_height=160.0, x=-350, y=150, z=0.1, yaw=math.pi),
+]
+WIND_FARM_C_small: list[TurbineSpec] = [
+    TurbineSpec("turbine_C_small_1", tower_height=111.0, y=250, z=0.1, yaw=math.pi/2),
+    TurbineSpec("turbine_C_small_2", tower_height=111.0, y=300, z=0.1, yaw=math.pi/2),
+    TurbineSpec("turbine_C_small_3", tower_height=111.0, y=350, z=0.1, yaw=math.pi/2),
+    TurbineSpec("turbine_C_small_4", tower_height=111.0, y=400, z=0.1, yaw=math.pi/2),
+    TurbineSpec("turbine_C_small_5", tower_height=111.0, y=450, z=0.1, yaw=math.pi/2),
+    TurbineSpec("turbine_C_small_6", tower_height=111.0, y=500, z=0.1, yaw=math.pi/2),
+]
+WIND_FARM_C_big: list[TurbineSpec] = [
+    TurbineSpec("turbine_C_big_1", tower_height=160.0, x=-150, y=250, z=0.1, yaw=math.pi/2),
+    TurbineSpec("turbine_C_big_2", tower_height=160.0, x=-150, y=300, z=0.1, yaw=math.pi/2),
+    TurbineSpec("turbine_C_big_3", tower_height=160.0, x=-150, y=350, z=0.1, yaw=math.pi/2),
+    TurbineSpec("turbine_C_big_4", tower_height=160.0, x=-150, y=400, z=0.1, yaw=math.pi/2),
+    TurbineSpec("turbine_C_big_5", tower_height=160.0, x=-150, y=450, z=0.1, yaw=math.pi/2),
+    TurbineSpec("turbine_C_big_6", tower_height=160.0, x=-150, y=500, z=0.1, yaw=math.pi/2),
+]
+WIND_FARM_D_small: list[TurbineSpec] = [
+    TurbineSpec("turbine_D_small_1", tower_height=111.0, x=-150, y=-100, z=0.1, yaw=3*math.pi/2),
+    TurbineSpec("turbine_D_small_2", tower_height=111.0, x=-150, y=-150, z=0.1, yaw=3*math.pi/2),
+    TurbineSpec("turbine_D_small_3", tower_height=111.0, x=-150, y=-200, z=0.1, yaw=3*math.pi/2),
+    TurbineSpec("turbine_D_small_4", tower_height=111.0, x=-150, y=-250, z=0.1, yaw=3*math.pi/2),
+    TurbineSpec("turbine_D_small_5", tower_height=111.0, x=-150, y=-300, z=0.1, yaw=3*math.pi/2),
+    TurbineSpec("turbine_D_small_6", tower_height=111.0, x=-150, y=-350, z=0.1, yaw=3*math.pi/2),
+]
+WIND_FARM_D_big: list[TurbineSpec] = [
+    TurbineSpec("turbine_D_big_1", tower_height=160.0, y=-100, z=0.1, yaw=3*math.pi/2),
+    TurbineSpec("turbine_D_big_2", tower_height=160.0, y=-150, z=0.1, yaw=3*math.pi/2),
+    TurbineSpec("turbine_D_big_3", tower_height=160.0, y=-200, z=0.1, yaw=3*math.pi/2),
+    TurbineSpec("turbine_D_big_4", tower_height=160.0, y=-250, z=0.1, yaw=3*math.pi/2),
+    TurbineSpec("turbine_D_big_5", tower_height=160.0, y=-300, z=0.1, yaw=3*math.pi/2),
+    TurbineSpec("turbine_D_big_6", tower_height=160.0, y=-350, z=0.1, yaw=3*math.pi/2),
 ]
 
 # Every farm that should be exported / started together.
 ALL_FARMS: dict[str, list[TurbineSpec]] = {
-    "A": WIND_FARM_A,
-    "B": WIND_FARM_B,
+    "A_small": WIND_FARM_A_small,
+    "A_big": WIND_FARM_A_big,
+    "B_small": WIND_FARM_B_small,
+    "B_big": WIND_FARM_B_big,
+    "C_small": WIND_FARM_C_small,
+    "C_big": WIND_FARM_C_big,
+    "D_small": WIND_FARM_D_small,
+    "D_big": WIND_FARM_D_big,
 }
 
 
@@ -226,6 +280,9 @@ def main() -> None:
                     help="which farm to export: 'all' (default) or a label like A or B")
     ap.add_argument("--launch", action="store_true", help="open the viewer after exporting")
     ap.add_argument("--wind", type=float, default=8.0, help="initial wind speed for the viewer (m/s)")
+    ap.add_argument("--needed", type=float, default=None,
+                    help="required power output in MW; only enough turbines spin to meet it")
+    ap.add_argument("--publish", action="store_true", help="publish rpm/power/energy to ROS 2 topics")
     ap.add_argument("--headless", type=float, default=None, help="run sim headless N seconds instead of viewer")
     args = ap.parse_args()
 
@@ -243,6 +300,10 @@ def main() -> None:
 
     if args.launch or args.headless is not None:
         cmd = [sys.executable, "wind_turbine_sim.py", "--model", str(path), "--wind", str(args.wind)]
+        if args.needed is not None:
+            cmd += ["--needed", str(args.needed)]
+        if args.publish:
+            cmd += ["--publish"]
         if args.headless is not None:
             cmd += ["--headless", str(args.headless)]
         print("Launching:", " ".join(cmd))

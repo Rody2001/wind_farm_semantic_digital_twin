@@ -25,7 +25,7 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
 
-from wind_farm_export import WIND_FARM_A, export_wind_farm, ALL_FARMS, combined_specs
+from wind_farm_export import combined_specs
 
 
 @dataclass
