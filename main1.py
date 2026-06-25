@@ -278,14 +278,7 @@ def main():
 
     return world
 
-print(main().semantic_annotations)
-# if __name__ == "__main__":
-#     # ---- the button ----
-#     # `python main.py --export`  -> just write the MuJoCo XML and exit (no ROS needed)
-#     # `python main.py`           -> build the digital-twin world and publish to RViz2
-#     if "--export" in sys.argv:
-#         path = export_wind_farm(WIND_FARM_A, "wind_turbine_generated.xml")
-#         print(f"Exported {len(WIND_FARM_A)} turbines -> {path.resolve()}")
-#         print("Run it with:  python wind_turbine_sim.py --model wind_turbine_generated.xml")
-#     else:
-#         main()
+#main()
+#print(main().semantic_annotations)
+if __name__ == "__main__":
+        main()

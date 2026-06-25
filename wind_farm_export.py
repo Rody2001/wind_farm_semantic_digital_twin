@@ -5,14 +5,14 @@ ONE-BUTTON EXPORT:  turn the wind farms defined here into a single
 MuJoCo XML scene that `wind_turbine_sim.py` can drive directly.
 
 All farms listed in ALL_FARMS are exported into ONE scene and started
-together. Turbine names are prefixed with their farm label so the two
-farms (which reuse turbine1..turbine6) don't collide.
+together. Turbine names are prefixed with their farm label so the
+farms don't collide.
 
 Run (the button):
     python wind_farm_export.py                 # export ALL farms -> wind_turbine_generated.xml
     python wind_farm_export.py --launch        # export ALL farms, then open the viewer
-    python wind_farm_export.py --farm A        # only farm A
-    python wind_farm_export.py --launch --wind 12
+    python wind_farm_export.py --launch --direction E   # wind FROM east at start
+    python wind_farm_export.py --farm A_small  # only one farm
 ===================================================================
 """
 
@@ -50,87 +50,51 @@ class TurbineSpec:
 # ===================================================================
 # SINGLE SOURCE OF TRUTH
 # ===================================================================
-WIND_FARM_A_small: list[TurbineSpec] = [
-    TurbineSpec("turbine_A_small_1", tower_height=111.0, x=0,   z=0.1),
-    TurbineSpec("turbine_A_small_2", tower_height=111.0, x=50,  z=0.1),
-    TurbineSpec("turbine_A_small_3", tower_height=111.0, x=100, z=0.1),
-    TurbineSpec("turbine_A_small_4", tower_height=111.0, x=150, z=0.1),
-    TurbineSpec("turbine_A_small_5", tower_height=111.0, x=200, z=0.1),
-    TurbineSpec("turbine_A_small_6", tower_height=111.0, x=250, z=0.1),
+WIND_FARM_East: list[TurbineSpec] = [
+    TurbineSpec("1", tower_height=131.0, x=100, y=0,  z=0.1),
+    TurbineSpec("2", tower_height=131.0, x=150, y=50,  z=0.1),
+    TurbineSpec("3", tower_height=131.0, x=200, y=100, z=0.1),
+    TurbineSpec("4", tower_height=131.0, x=250, y=150, z=0.1),
+    TurbineSpec("5", tower_height=131.0, x=300, y=200, z=0.1),
+    TurbineSpec("6", tower_height=131.0, x=350, y=250, z=0.1),
 ]
-WIND_FARM_A_big: list[TurbineSpec] = [
-    TurbineSpec("turbine_A_big_1", tower_height=160.0, x=0,  y=150, z=0.1),
-    TurbineSpec("turbine_A_big_2", tower_height=160.0, x=50, y=150, z=0.1),
-    TurbineSpec("turbine_A_big_3", tower_height=160.0, x=100,y=150, z=0.1),
-    TurbineSpec("turbine_A_big_4", tower_height=160.0, x=150,y=150, z=0.1),
-    TurbineSpec("turbine_A_big_5", tower_height=160.0, x=200,y=150, z=0.1),
-    TurbineSpec("turbine_A_big_6", tower_height=160.0, x=250,y=150, z=0.1),
+
+WIND_FARM_West: list[TurbineSpec] = [
+    TurbineSpec("1", tower_height=131.0, x=-100, y=0, z=0.1, yaw=math.pi),
+    TurbineSpec("2", tower_height=131.0, x=-150, y=-50, z=0.1, yaw=math.pi),
+    TurbineSpec("3", tower_height=131.0, x=-200, y=-100, z=0.1, yaw=math.pi),
+    TurbineSpec("4", tower_height=131.0, x=-250, y=-150, z=0.1, yaw=math.pi),
+    TurbineSpec("5", tower_height=131.0, x=-300, y=-200, z=0.1, yaw=math.pi),
+    TurbineSpec("6", tower_height=131.0, x=-350, y=-250, z=0.1, yaw=math.pi),
 ]
-WIND_FARM_B_small: list[TurbineSpec] = [
-    TurbineSpec("turbine_B_small_1", tower_height=111.0, x=-100, z=0.1, yaw=math.pi),
-    TurbineSpec("turbine_B_small_2", tower_height=111.0, x=-150, z=0.1, yaw=math.pi),
-    TurbineSpec("turbine_B_small_3", tower_height=111.0, x=-200, z=0.1, yaw=math.pi),
-    TurbineSpec("turbine_B_small_4", tower_height=111.0, x=-250, z=0.1, yaw=math.pi),
-    TurbineSpec("turbine_B_small_5", tower_height=111.0, x=-300, z=0.1, yaw=math.pi),
-    TurbineSpec("turbine_B_small_6", tower_height=111.0, x=-350, z=0.1, yaw=math.pi),
+WIND_FARM_North: list[TurbineSpec] = [
+    TurbineSpec("1", tower_height=131.0, x=0, y=100, z=0.1, yaw=math.pi/2),
+    TurbineSpec("2", tower_height=131.0, x=-50, y=150, z=0.1, yaw=math.pi/2),
+    TurbineSpec("3", tower_height=131.0, x=-100, y=200, z=0.1, yaw=math.pi/2),
+    TurbineSpec("4", tower_height=131.0, x=-150, y=250, z=0.1, yaw=math.pi/2),
+    TurbineSpec("5", tower_height=131.0, x=-200, y=300, z=0.1, yaw=math.pi/2),
+    TurbineSpec("6", tower_height=131.0, x=-250, y=350, z=0.1, yaw=math.pi/2),
 ]
-WIND_FARM_B_big: list[TurbineSpec] = [
-    TurbineSpec("turbine_B_big_1", tower_height=160.0, x=-100, y=150, z=0.1, yaw=math.pi),
-    TurbineSpec("turbine_B_big_2", tower_height=160.0, x=-150, y=150, z=0.1, yaw=math.pi),
-    TurbineSpec("turbine_B_big_3", tower_height=160.0, x=-200, y=150, z=0.1, yaw=math.pi),
-    TurbineSpec("turbine_B_big_4", tower_height=160.0, x=-250, y=150, z=0.1, yaw=math.pi),
-    TurbineSpec("turbine_B_big_5", tower_height=160.0, x=-300, y=150, z=0.1, yaw=math.pi),
-    TurbineSpec("turbine_B_big_6", tower_height=160.0, x=-350, y=150, z=0.1, yaw=math.pi),
-]
-WIND_FARM_C_small: list[TurbineSpec] = [
-    TurbineSpec("turbine_C_small_1", tower_height=111.0, y=250, z=0.1, yaw=math.pi/2),
-    TurbineSpec("turbine_C_small_2", tower_height=111.0, y=300, z=0.1, yaw=math.pi/2),
-    TurbineSpec("turbine_C_small_3", tower_height=111.0, y=350, z=0.1, yaw=math.pi/2),
-    TurbineSpec("turbine_C_small_4", tower_height=111.0, y=400, z=0.1, yaw=math.pi/2),
-    TurbineSpec("turbine_C_small_5", tower_height=111.0, y=450, z=0.1, yaw=math.pi/2),
-    TurbineSpec("turbine_C_small_6", tower_height=111.0, y=500, z=0.1, yaw=math.pi/2),
-]
-WIND_FARM_C_big: list[TurbineSpec] = [
-    TurbineSpec("turbine_C_big_1", tower_height=160.0, x=-150, y=250, z=0.1, yaw=math.pi/2),
-    TurbineSpec("turbine_C_big_2", tower_height=160.0, x=-150, y=300, z=0.1, yaw=math.pi/2),
-    TurbineSpec("turbine_C_big_3", tower_height=160.0, x=-150, y=350, z=0.1, yaw=math.pi/2),
-    TurbineSpec("turbine_C_big_4", tower_height=160.0, x=-150, y=400, z=0.1, yaw=math.pi/2),
-    TurbineSpec("turbine_C_big_5", tower_height=160.0, x=-150, y=450, z=0.1, yaw=math.pi/2),
-    TurbineSpec("turbine_C_big_6", tower_height=160.0, x=-150, y=500, z=0.1, yaw=math.pi/2),
-]
-WIND_FARM_D_small: list[TurbineSpec] = [
-    TurbineSpec("turbine_D_small_1", tower_height=111.0, x=-150, y=-100, z=0.1, yaw=3*math.pi/2),
-    TurbineSpec("turbine_D_small_2", tower_height=111.0, x=-150, y=-150, z=0.1, yaw=3*math.pi/2),
-    TurbineSpec("turbine_D_small_3", tower_height=111.0, x=-150, y=-200, z=0.1, yaw=3*math.pi/2),
-    TurbineSpec("turbine_D_small_4", tower_height=111.0, x=-150, y=-250, z=0.1, yaw=3*math.pi/2),
-    TurbineSpec("turbine_D_small_5", tower_height=111.0, x=-150, y=-300, z=0.1, yaw=3*math.pi/2),
-    TurbineSpec("turbine_D_small_6", tower_height=111.0, x=-150, y=-350, z=0.1, yaw=3*math.pi/2),
-]
-WIND_FARM_D_big: list[TurbineSpec] = [
-    TurbineSpec("turbine_D_big_1", tower_height=160.0, y=-100, z=0.1, yaw=3*math.pi/2),
-    TurbineSpec("turbine_D_big_2", tower_height=160.0, y=-150, z=0.1, yaw=3*math.pi/2),
-    TurbineSpec("turbine_D_big_3", tower_height=160.0, y=-200, z=0.1, yaw=3*math.pi/2),
-    TurbineSpec("turbine_D_big_4", tower_height=160.0, y=-250, z=0.1, yaw=3*math.pi/2),
-    TurbineSpec("turbine_D_big_5", tower_height=160.0, y=-300, z=0.1, yaw=3*math.pi/2),
-    TurbineSpec("turbine_D_big_6", tower_height=160.0, y=-350, z=0.1, yaw=3*math.pi/2),
+WIND_FARM_South: list[TurbineSpec] = [
+    TurbineSpec("1", tower_height=131.0, x=0, y=-100, z=0.1, yaw=3*math.pi/2),
+    TurbineSpec("2", tower_height=131.0, x=50, y=-150, z=0.1, yaw=3*math.pi/2),
+    TurbineSpec("3", tower_height=131.0, x=100, y=-200, z=0.1, yaw=3*math.pi/2),
+    TurbineSpec("4", tower_height=131.0, x=150, y=-250, z=0.1, yaw=3*math.pi/2),
+    TurbineSpec("5", tower_height=131.0, x=200, y=-300, z=0.1, yaw=3*math.pi/2),
+    TurbineSpec("6", tower_height=131.0, x=250, y=-350, z=0.1, yaw=3*math.pi/2),
 ]
 
 # Every farm that should be exported / started together.
 ALL_FARMS: dict[str, list[TurbineSpec]] = {
-    "A_small": WIND_FARM_A_small,
-    "A_big": WIND_FARM_A_big,
-    "B_small": WIND_FARM_B_small,
-    "B_big": WIND_FARM_B_big,
-    "C_small": WIND_FARM_C_small,
-    "C_big": WIND_FARM_C_big,
-    "D_small": WIND_FARM_D_small,
-    "D_big": WIND_FARM_D_big,
+    "Farm_East": WIND_FARM_East,
+    "Farm_North": WIND_FARM_North,
+    "Farm_West": WIND_FARM_West,
+    "Farm_South": WIND_FARM_South,
 }
 
 
 def combined_specs(farms: dict[str, list[TurbineSpec]] = None) -> list[TurbineSpec]:
-    """Flatten all farms into one list, prefixing names with the farm label
-    so they stay unique inside a single MuJoCo scene."""
+    """Flatten all farms into one list, prefixing names with the farm label."""
     farms = farms if farms is not None else ALL_FARMS
     out: list[TurbineSpec] = []
     for label, specs in farms.items():
@@ -141,10 +105,12 @@ def combined_specs(farms: dict[str, list[TurbineSpec]] = None) -> list[TurbineSp
 
 # ------------------------------------------------------------------- #
 def _f(v: float) -> str:
+    """Format a float for XML."""
     return f"{v:.6g}"
 
 
 def _turbine_body(spec: TurbineSpec) -> str:
+    """Build a MuJoCo XML body for a single turbine."""
     H = spec.tower_height
     n = spec.name
 
@@ -176,6 +142,7 @@ def _turbine_body(spec: TurbineSpec) -> str:
     radials   = (-120.0, 120.0, 0.0)
 
     def blade(i: int, rx: float) -> str:
+        """Build a MuJoCo XML body for a single blade."""
         b = f"{n}_blade{i}"
         return f"""\
         <body name="{b}" euler="{_f(rx)} 0 {_f(-PITCH_DEG)}">
@@ -204,7 +171,7 @@ def _turbine_body(spec: TurbineSpec) -> str:
 
 
 def _auto_ground(specs: list[TurbineSpec]) -> float:
-    """Ground half-size big enough to hold every turbine plus a margin."""
+    """Estimate the ground height based on the turbine positions."""
     if not specs:
         return 40.0
     reach = max(max(abs(s.x), abs(s.y)) + 1.5 * s.tower_height for s in specs)
@@ -212,7 +179,7 @@ def _auto_ground(specs: list[TurbineSpec]) -> float:
 
 
 def build_mujoco_xml(specs: list[TurbineSpec], ground: float = None) -> str:
-    """Return a complete MuJoCo XML string for all the given turbines."""
+    """Build a MuJoCo XML file for a wind farm."""
     if ground is None:
         ground = _auto_ground(specs)
     bodies = "\n\n".join(_turbine_body(s) for s in specs)
@@ -264,44 +231,91 @@ def build_mujoco_xml(specs: list[TurbineSpec], ground: float = None) -> str:
 
 def export_wind_farm(specs: list[TurbineSpec] = None,
                      out_path: str = "wind_turbine_generated.xml") -> Path:
-    """Write the farm(s) to a MuJoCo XML file and return its path.
-    Defaults to ALL farms combined."""
+    """Export a wind farm to a MuJoCo XML file."""
     specs = specs if specs is not None else combined_specs()
-    xml = build_mujoco_xml(specs)
-    p = Path(out_path)
-    p.write_text(xml, encoding="utf-8")
-    return p
+    Path(out_path).write_text(build_mujoco_xml(specs), encoding="utf-8")
+    return Path(out_path)
 
+def labels_for_token(token):
+    """
+    Returns a list of applicable farm labels based on the provided token.
+
+    This function processes the given token to match or partially match it
+    against a predefined set of farm labels, `ALL_FARMS`. If the token is
+    "all", it returns all farm labels from `ALL_FARMS`. If there is an
+    exact match or partial match based on specific conditions, a filtered
+    list of labels is returned.
+    """
+    t=token.strip().lower()
+    if t=="all": return list(ALL_FARMS)
+    exact=[k for k in ALL_FARMS if k.lower()==t]
+    if exact: return exact
+    if not t.startswith("farm_"):
+        cand=[k for k in ALL_FARMS if k.lower()==f"farm_{t}"]
+        if cand: return cand
+    return [k for k in ALL_FARMS if t in k.lower()]
+
+def resolve_farms(tokens):
+    """
+    Resolves farm tokens into their corresponding farm data.
+
+    This function processes a list of farm tokens, matches them against valid labels,
+    and returns a dictionary of matched farms. If a token does not match any existing
+    farms, the function raises an error with a message specifying the unmatched token
+    and the list of all valid farms.
+    """
+    chosen=set()
+    for tok in tokens:
+        labels=labels_for_token(tok)
+        if not labels: raise SystemExit(f"--farm '{tok}' matched no farms. Valid: {list(ALL_FARMS)}")
+        chosen.update(labels)
+    return {k:ALL_FARMS[k] for k in ALL_FARMS if k in chosen}
 
 def main() -> None:
+    """
+    Main script for exporting wind farms to a MuJoCo XML configuration and option to launch a simulation viewer.
+
+    This script processes command-line arguments to define the desired parameters for generating,
+    configuring, and optionally simulating wind farms. It supports features such as selecting
+    specific wind farms, setting wind speed or power output constraints, and enabling real-time
+    or headless simulation modes.
+
+    Sections include functions for resolving farms, combining turbine specifications, exporting
+    the configuration, and running the simulation viewer or headless simulation.
+
+    Arguments provided to the script determine the behavior and configuration of the export and simulation processes.
+    """
     ap = argparse.ArgumentParser(description="Export wind farm(s) to a MuJoCo XML for wind_turbine_sim.py")
     ap.add_argument("--out", default="wind_turbine_generated.xml", help="output XML path")
-    ap.add_argument("--farm", default="all",
-                    help="which farm to export: 'all' (default) or a label like A or B")
+    ap.add_argument("--farm", action="append", default=None,
+                    help="farm(s) to include; REPEATABLE. e.g. --farm Farm_South --farm Farm_West "
+                         "(or short: --farm south --farm west). Default: all.")
     ap.add_argument("--launch", action="store_true", help="open the viewer after exporting")
     ap.add_argument("--wind", type=float, default=8.0, help="initial wind speed for the viewer (m/s)")
     ap.add_argument("--needed", type=float, default=None,
                     help="required power output in MW; only enough turbines spin to meet it")
+    ap.add_argument("--direction", choices=["N", "S", "E", "W"], default="N",
+                    help="wind comes FROM this compass point; change live with N/S/W/E in the viewer")
+    ap.add_argument("--all-spin", action="store_true",
+                    help="disable directional gating: every turbine spins regardless of facing")
     ap.add_argument("--publish", action="store_true", help="publish rpm/power/energy to ROS 2 topics")
     ap.add_argument("--headless", type=float, default=None, help="run sim headless N seconds instead of viewer")
     args = ap.parse_args()
 
-    if args.farm.lower() == "all":
-        specs = combined_specs()
-    elif args.farm in ALL_FARMS:
-        specs = combined_specs({args.farm: ALL_FARMS[args.farm]})
-    else:
-        raise SystemExit(f"--farm must be 'all' or one of {list(ALL_FARMS)}")
+    selected = resolve_farms(args.farm or ["all"])
+    specs = combined_specs(selected)
 
     path = export_wind_farm(specs, args.out)
-    counts = ", ".join(f"farm {k}: {len(v)}" for k, v in ALL_FARMS.items()) \
-        if args.farm.lower() == "all" else f"farm {args.farm}"
+    counts = ", ".join(f"{k}: {len(v)}" for k, v in selected.items())
     print(f"Wrote {len(specs)} turbines ({counts}) -> {path.resolve()}")
 
     if args.launch or args.headless is not None:
-        cmd = [sys.executable, "wind_turbine_sim.py", "--model", str(path), "--wind", str(args.wind)]
+        cmd = [sys.executable, "wind_turbine_sim.py", "--model", str(path),
+               "--wind", str(args.wind), "--direction", args.direction]
         if args.needed is not None:
             cmd += ["--needed", str(args.needed)]
+        if args.all_spin:
+            cmd += ["--all-spin"]
         if args.publish:
             cmd += ["--publish"]
         if args.headless is not None:

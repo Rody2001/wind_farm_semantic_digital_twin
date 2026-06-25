@@ -10,7 +10,7 @@ except Exception:  # noqa: BLE001
 
 # Pure formulas + the two farm definitions (no framework dependency).
 from turbine_formulas import min_wind_speed_for_length
-from wind_farm_export import WIND_FARM_A_small, WIND_FARM_B_big, R_BLADE_LENGTH, TurbineSpec
+from wind_farm_export import R_BLADE_LENGTH, TurbineSpec#, WIND_FARM_A_small, WIND_FARM_B_big
 
 
 # ------------------------------------------------------------------ #
@@ -77,30 +77,30 @@ def farm_power(farm: list[TurbineSpec], rho: float = 1.225, wind_speed: float = 
     return total
 
 
-def which_farm_produces_more(rho: float = 1.225, wind_speed: float = 8.0,
-                             c_p: float = 0.45, alpha: float = 0.0) -> dict:
-    """Compare WIND_FARM_A_small vs WIND_FARM_B_big and report which makes more power."""
-    pa = farm_power(WIND_FARM_A_small, rho, wind_speed, c_p, alpha)
-    pb = farm_power(WIND_FARM_B_big, rho, wind_speed, c_p, alpha)
-    winner = "A" if pa > pb else "B" if pb > pa else "tie"
-    lo = min(pa, pb)
-    return {
-        "farm_A_W": pa,
-        "farm_B_W": pb,
-        "winner": winner,
-        "ratio": (max(pa, pb) / lo) if lo > 0 else float("inf"),
-    }
-
-
-if __name__ == "__main__":
-    # ---- farm comparison (no ROS needed) ----
-    res = which_farm_produces_more(wind_speed=8.0, c_p=0.45)
-    print(f"Farm A: {res['farm_A_W'] / 1e6:8.3f} MW   "
-          f"({len(WIND_FARM_A_small)} turbines)")
-    print(f"Farm B: {res['farm_B_W'] / 1e6:8.3f} MW   "
-          f"({len(WIND_FARM_B_big)} turbines)")
-    print(f"-> Farm {res['winner']} produces more "
-          f"({res['ratio']:.2f}x) at 8 m/s")
+# def which_farm_produces_more(rho: float = 1.225, wind_speed: float = 8.0,
+#                              c_p: float = 0.45, alpha: float = 0.0) -> dict:
+#     """Compare WIND_FARM_A_small vs WIND_FARM_B_big and report which makes more power."""
+#     pa = farm_power(WIND_FARM_A_small, rho, wind_speed, c_p, alpha)
+#     pb = farm_power(WIND_FARM_B_big, rho, wind_speed, c_p, alpha)
+#     winner = "A" if pa > pb else "B" if pb > pa else "tie"
+#     lo = min(pa, pb)
+#     return {
+#         "farm_A_W": pa,
+#         "farm_B_W": pb,
+#         "winner": winner,
+#         "ratio": (max(pa, pb) / lo) if lo > 0 else float("inf"),
+#     }
+#
+#
+# if __name__ == "__main__":
+#     # ---- farm comparison (no ROS needed) ----
+#     res = which_farm_produces_more(wind_speed=8.0, c_p=0.45)
+#     print(f"Farm A: {res['farm_A_W'] / 1e6:8.3f} MW   "
+#           f"({len(WIND_FARM_A_small)} turbines)")
+#     print(f"Farm B: {res['farm_B_W'] / 1e6:8.3f} MW   "
+#           f"({len(WIND_FARM_B_big)} turbines)")
+#     print(f"-> Farm {res['winner']} produces more "
+#           f"({res['ratio']:.2f}x) at 8 m/s")
 
 #---- original digital-twin queries (need the framework) ----
 # from main import main
