@@ -17,7 +17,13 @@ Topics (std_msgs/Float64), one per turbine plus farm totals:
 
 Other options:
     --wind 8 --tsr 6 --cp 0.45 --axial --aero --headless N
-Viewer keys: Up/Down = wind +/- 1 m/s,  R = reset (also zeros energy)
+    --yaw-rate 10   nacelle yaw slew speed in deg/s (default 10) while it turns to face the wind
+Viewer keys:
+    S = wind-SPEED mode, then Up/Down = +/- 1 m/s
+    D = wind-DIRECTION mode, then Up/Down = +/- 5 deg (0-360, wraps around)
+    R = reset (also zeros energy)
+Each turbine's nacelle automatically yaws to face wherever the wind is currently
+coming from, slewing smoothly rather than snapping to the new heading.
 ===================================================================
 """
 
@@ -32,6 +38,11 @@ RHO = formulas.RHO   # air density [kg/m^3]
 CD  = 1.28           # flat-plate drag coeff  (aero mode only)
 
 
+def _wrap_to_pi(angle):
+    """Wrap an angle in radians to (-pi, pi], for shortest-path yaw slewing."""
+    return (angle + np.pi) % (2 * np.pi) - np.pi
+
+
 # =================================================================== #
 # QUERY-DRIVEN KINEMATIC MODEL (default)
 # =================================================================== #
@@ -41,7 +52,7 @@ class QueryDriver:
 
     def __init__(self, model: mujoco.MjModel, axial: bool = False, tsr: float = formulas.TSR,
                  needed_mw: float = None, rho: float = formulas.RHO, c_p: float = formulas.C_P,
-                 facing: bool = False):
+                 facing: bool = False, yaw_rate_deg: float = 10.0):
         self.model = model
         self.axial = axial
         self.facing = facing        # if True: only turbines facing the wind spin
@@ -49,19 +60,32 @@ class QueryDriver:
         self.tsr = tsr
         self.rho = rho
         self.c_p = c_p
+        self.yaw_rate_deg = yaw_rate_deg   # nacelle slew speed while tracking the wind
         self.needed_w = None if needed_mw is None else needed_mw * 1e6
         self.rotors = []            # (name, body_id, qpos_adr, dof_adr, axis_local, D)
+        self.yaws = []               # (name, qpos_adr, dof_adr, base_yaw_rad)
 
         for j in range(model.njnt):
             name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, j)
-            if not name or not name.endswith("_rotor"):
+            if not name:
                 continue
-            body_id = model.jnt_bodyid[j]
-            qpadr   = model.jnt_qposadr[j]
-            dadr    = model.jnt_dofadr[j]
-            axis    = model.jnt_axis[j].copy()
-            D       = self._blade_length(body_id)
-            self.rotors.append((name, body_id, qpadr, dadr, axis, D))
+            if name.endswith("_rotor"):
+                body_id = model.jnt_bodyid[j]
+                qpadr   = model.jnt_qposadr[j]
+                dadr    = model.jnt_dofadr[j]
+                axis    = model.jnt_axis[j].copy()
+                D       = self._blade_length(body_id)
+                self.rotors.append((name, body_id, qpadr, dadr, axis, D))
+            elif name.endswith("_yaw"):
+                nacelle_body_id = model.jnt_bodyid[j]
+                qpadr = model.jnt_qposadr[j]
+                dadr  = model.jnt_dofadr[j]
+                base_body_id = model.body_parentid[nacelle_body_id]
+                # base body is welded with a pure Z-axis euler rotation, so its quaternion
+                # (w, x, y, z) has only w and z populated: yaw = 2 * atan2(z, w).
+                bq = model.body_quat[base_body_id]
+                base_yaw = 2.0 * float(np.arctan2(bq[3], bq[0]))
+                self.yaws.append((name, qpadr, dadr, base_yaw))
 
         if not self.rotors:
             raise RuntimeError("No '*_rotor' joints found in the model.")
@@ -86,6 +110,28 @@ class QueryDriver:
         for n in self.names:
             self.energy_wh[n] = 0.0
         self.total_energy_wh = 0.0
+
+    def _update_yaw(self, data, wind_vec, dt):
+        """Slew each nacelle's yaw joint toward facing the current wind direction.
+
+        Moves at most yaw_rate_deg * dt degrees per step, so the nacelle visibly
+        turns to the correct heading instead of snapping there instantly.
+        """
+        if not self.yaws:
+            return
+        speed = float(np.linalg.norm(wind_vec[:2]))
+        if speed < 1e-9:
+            return                              # no wind direction to chase, hold position
+        source_dir = -wind_vec[:2] / speed      # unit vector toward where the wind comes from
+        target_world = float(np.arctan2(source_dir[1], source_dir[0]))
+        max_step = np.deg2rad(self.yaw_rate_deg) * dt
+        for _name, qpadr, dadr, base_yaw in self.yaws:
+            target_local = _wrap_to_pi(target_world - base_yaw)
+            current = float(data.qpos[qpadr])
+            diff = _wrap_to_pi(target_local - current)
+            step = float(np.clip(diff, -max_step, max_step))
+            data.qpos[qpadr] = current + step
+            data.qvel[dadr] = step / dt if dt > 0 else 0.0
 
     def _rotor_wind(self, data, body_id, axis_local, wind_vec):
         if self.facing:
@@ -125,6 +171,7 @@ class QueryDriver:
         return active, rows
 
     def advance(self, data: mujoco.MjData, wind_vec: np.ndarray, dt: float):
+        self._update_yaw(data, wind_vec, dt)
         active, rows = self._active_set(data, wind_vec)
         total_power = 0.0
         for k, rpm, power in rows:
@@ -258,30 +305,22 @@ def make_wind(speed, heading_deg=0.0):
     return np.array([np.cos(a), np.sin(a), 0.0]) * speed
 
 
-# Wind *from* a compass point -> the velocity vector it blows along.
-# Map: +X = East, +Y = North.  "from N" blows toward -Y (south), etc.
-COMPASS = {
-    "N": np.array([0.0, -1.0, 0.0]),
-    "S": np.array([0.0,  1.0, 0.0]),
-    "E": np.array([-1.0, 0.0, 0.0]),
-    "W": np.array([1.0,  0.0, 0.0]),
-}
-COMPASS_KEYS = {78: "N", 83: "S", 87: "W", 69: "E"}   # GLFW key codes
-
-
-def wind_from_compass(speed, direction):
-    """World-frame wind vector for wind coming FROM `direction` (N/S/E/W)."""
-    return COMPASS[direction] * speed
+# Wind *from* a compass bearing (0-360 deg) -> the velocity vector it blows along.
+# Map: +X = East, +Y = North. bearing is measured clockwise from North, matching
+# a real compass (0=N, 90=E, 180=S, 270=W). "from N" (0 deg) blows toward -Y (south), etc.
+def wind_from_bearing(speed, bearing_deg):
+    """World-frame wind vector for wind coming FROM `bearing_deg` (0-360, compass bearing)."""
+    a = np.deg2rad(bearing_deg)
+    source = np.array([np.sin(a), np.cos(a), 0.0])   # unit vector toward where wind comes from
+    return -source * speed
 
 
 # --------------------------------------------------------------------------- #
-def run_headless(model, data, driver, seconds, wind_speed, publisher=None, direction="N"):
+def run_headless(model, data, driver, seconds, wind_speed, publisher=None, direction=0.0):
     steps = int(seconds / model.opt.timestep)
     pub_every = max(1, int(0.1 / model.opt.timestep))    # ~10 Hz
-    facing = getattr(driver, "facing", False)
-    wind = wind_from_compass(wind_speed, direction) if facing else make_wind(wind_speed)
-    tag = f"wind FROM {direction}" if facing else "wind +X"
-    print(f"Headless: {seconds}s @ {wind_speed} m/s ({tag})\n")
+    wind = wind_from_bearing(wind_speed, direction)
+    print(f"Headless: {seconds}s @ {wind_speed} m/s (wind FROM {direction:.1f} deg)\n")
     for i in range(steps):
         driver.advance(data, wind, model.opt.timestep)
         if publisher and i % pub_every == 0:
@@ -295,30 +334,48 @@ def run_headless(model, data, driver, seconds, wind_speed, publisher=None, direc
     return driver.rpm(data)
 
 
-def run_viewer(model, data, driver, wind_speed, publisher=None, direction="N"):
+SPEED_STEP = 1.0    # m/s per arrow press
+DIR_STEP = 5.0       # degrees per arrow press
+
+
+def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0):
     import mujoco.viewer
-    state = {"speed": wind_speed, "direction": direction}
+    # mode: "speed" -> arrows change wind speed, "direction" -> arrows change bearing (0-360)
+    state = {"speed": wind_speed, "direction": direction % 360.0, "mode": "speed"}
 
     def key_cb(keycode):
-        if keycode == 265:
-            state["speed"] += 1.0
-        elif keycode == 264:
-            state["speed"] = max(0.0, state["speed"] - 1.0)
-        elif keycode in (82, 114):
+        if keycode in (83, 115):                     # 's' / 'S' -> speed mode
+            state["mode"] = "speed"
+            print("Mode: WIND SPEED (Up/Down arrows)")
+            return
+        if keycode in (68, 100):                      # 'd' / 'D' -> direction mode
+            state["mode"] = "direction"
+            print("Mode: WIND DIRECTION (Up/Down arrows, 0-360 deg)")
+            return
+        if keycode in (82, 114):                       # 'r' / 'R' -> reset
             mujoco.mj_resetData(model, data)
             if hasattr(driver, "reset_energy"):
                 driver.reset_energy()
-        elif keycode in COMPASS_KEYS:
-            state["direction"] = COMPASS_KEYS[keycode]
-            driver.facing = True                    # engage directional mode
-            print(f"  wind FROM {state['direction']}")
             return
-        print(f"  wind = {state['speed']:.1f} m/s")
+        if keycode == 265:                             # Up arrow
+            if state["mode"] == "speed":
+                state["speed"] += SPEED_STEP
+            else:
+                state["direction"] = (state["direction"] + DIR_STEP) % 360.0
+        elif keycode == 264:                           # Down arrow
+            if state["mode"] == "speed":
+                state["speed"] = max(0.0, state["speed"] - SPEED_STEP)
+            else:
+                state["direction"] = (state["direction"] - DIR_STEP) % 360.0
+        else:
+            return
+        if state["mode"] == "speed":
+            print(f"  wind = {state['speed']:.1f} m/s")
+        else:
+            print(f"  wind FROM {state['direction']:.1f} deg")
 
     def current_wind():
-        if getattr(driver, "facing", False):
-            return wind_from_compass(state["speed"], state["direction"])
-        return make_wind(state["speed"])
+        return wind_from_bearing(state["speed"], state["direction"])
 
     with mujoco.viewer.launch_passive(model, data, key_callback=key_cb) as v:
         v.cam.lookat[:] = model.stat.center
@@ -337,10 +394,10 @@ def run_viewer(model, data, driver, wind_speed, publisher=None, direction="N"):
             if now - print_t > 1.0:
                 rpms = driver.rpm(data)
                 spinning = sum(1 for vv in rpms.values() if abs(vv) > 1e-6)
-                dtag = f"FROM {state['direction']}" if getattr(driver, "facing", False) else "+X"
                 extra = f"   total={getattr(driver,'last_total_power',0)/1e6:.2f}MW" \
                         f"  E={getattr(driver,'total_energy_wh',0)/1000:.3f}kWh"
-                print(f"wind {dtag} {state['speed']:4.1f} m/s   spinning {spinning}/{len(rpms)}{extra}")
+                print(f"wind FROM {state['direction']:5.1f} deg @ {state['speed']:4.1f} m/s   "
+                      f"spinning {spinning}/{len(rpms)}{extra}")
                 print_t = now
             dt = model.opt.timestep - (time.time() - step_start)
             if dt > 0:
@@ -356,15 +413,18 @@ def main():
     ap.add_argument("--aero", action="store_true", help="use the aerodynamic force model")
     ap.add_argument("--axial", action="store_true",
                     help="query mode: use wind projected onto each rotor axis (orientation matters)")
-    ap.add_argument("--direction", choices=["N", "S", "E", "W"], default="N",
-                    help="wind comes FROM this compass point; only turbines facing it spin "
-                         "(change live in the viewer with N/S/W/E). Use --all-spin to disable.")
+    ap.add_argument("--direction", type=float, default=0.0,
+                    help="wind comes FROM this compass bearing in degrees (0=N, 90=E, 180=S, "
+                         "270=W). Only turbines facing it spin unless --all-spin is set. "
+                         "Change live in the viewer: press 'd' then Up/Down arrows.")
     ap.add_argument("--all-spin", action="store_true",
                     help="disable directional gating: every turbine spins regardless of facing")
     ap.add_argument("--tsr", type=float, default=formulas.TSR, help="tip-speed ratio (default 6)")
     ap.add_argument("--needed", type=float, default=None,
                     help="required power output in MW; only enough turbines spin to meet it")
     ap.add_argument("--cp", type=float, default=formulas.C_P, help="power coefficient c_p (default 0.45)")
+    ap.add_argument("--yaw-rate", type=float, default=10.0,
+                    help="nacelle yaw slew rate in deg/s while tracking the wind (default 10)")
     ap.add_argument("--publish", action="store_true", help="publish rpm/power/energy to ROS 2 topics")
     args = ap.parse_args()
 
@@ -378,15 +438,15 @@ def main():
     else:
         facing = not (args.axial or args.all_spin)
         driver = QueryDriver(model, axial=args.axial, tsr=args.tsr,
-                             needed_mw=args.needed, rho=RHO, c_p=args.cp, facing=facing)
-        mode = (f"wind FROM {args.direction}, facing-gated" if facing
+                             needed_mw=args.needed, rho=RHO, c_p=args.cp, facing=facing,
+                             yaw_rate_deg=args.yaw_rate)
+        mode = (f"wind FROM {args.direction:.1f} deg, facing-gated" if facing
                 else "axial wind" if args.axial else "scalar wind (all spin)")
         print(f"QUERY model ({mode}, TSR={args.tsr:g}):")
         for name, D, vmin in driver.info():
             print(f"  {name}: blade D={D:.3f} m -> cut-in {vmin:.4f} m/s (1 RPM)")
         if args.needed is not None:
-            preview_wind = (wind_from_compass(args.wind, args.direction) if facing
-                            else make_wind(args.wind))
+            preview_wind = wind_from_bearing(args.wind, args.direction)
             _, used, total, on = driver.preview(data, preview_wind)
             print(f"\nDemand {args.needed:g} MW @ {args.wind:g} m/s: "
                   f"starting {len(on)}/{len(driver.rotors)} turbines "

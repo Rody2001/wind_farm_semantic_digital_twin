@@ -103,15 +103,16 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
         elements_conns.append(tower_conn)
         elements_annotations.append(tower_annotation)
 
-        # Nacelle
+        # Nacelle (now yaws about the vertical axis, like a real turbine tracking the wind)
         nacelle_height = tower_height * (678/15797)
         nacelle_box = Box(scale=Scale(nacelle_length, tower_width, nacelle_height), color=green)
         nacelle_body = Body(name=PrefixedName(f"{name}_nacelle"),
                            visual=ShapeCollection([nacelle_box]),
                            collision=ShapeCollection([nacelle_box]))
-        nacelle_conn = FixedConnection(parent=tower_body, child=nacelle_body,
-                                      parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                                          x=-nacelle_length/4, y=0, z=(tower_height/2) + (nacelle_height/2)))
+        nacelle_conn = RevoluteConnection.create_with_dofs(
+            world=world, parent=tower_body, child=nacelle_body, axis=cas.Vector3.Z(),
+            parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=-nacelle_length/4, y=0, z=(tower_height/2) + (nacelle_height/2)))
         nacelle_annotation = Nacelle(root=nacelle_body)
         elements_conns.append(nacelle_conn)
         elements_annotations.append(nacelle_annotation)
@@ -178,7 +179,7 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
         for annotation in elements_annotations:
             world.add_semantic_annotation(annotation)
 
-        return hub_conn  # Return hub connection to access DOF
+        return hub_conn, nacelle_conn  # Return both connections to access their DOFs
 
     def add_to_world(self, world: World):
 
@@ -253,7 +254,7 @@ def main():
         # =====================================================================
         turbine_hubs = {}
         for spec in combined_specs():
-            hub = WindTurbine.create_with_new_body_in_world(
+            hub, nacelle = WindTurbine.create_with_new_body_in_world(
                 world=world,
                 parent=root,
                 name=PrefixedName(spec.name),
@@ -262,7 +263,7 @@ def main():
                 parent_T_connection=HomogeneousTransformationMatrix.from_xyz_rpy(
                     x=spec.x, y=spec.y, z=spec.z, yaw=spec.yaw),
             )
-            turbine_hubs[spec.name] = hub
+            turbine_hubs[spec.name] = {"hub": hub, "nacelle": nacelle}
 
 
     # =====================================================================

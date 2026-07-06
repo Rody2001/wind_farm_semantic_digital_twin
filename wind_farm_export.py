@@ -11,7 +11,7 @@ farms don't collide.
 Run (the button):
     python wind_farm_export.py                 # export ALL farms -> wind_turbine_generated.xml
     python wind_farm_export.py --launch        # export ALL farms, then open the viewer
-    python wind_farm_export.py --launch --direction E   # wind FROM east at start
+    python wind_farm_export.py --launch --direction 90   # wind FROM 90 deg (east) at start
     python wind_farm_export.py --farm A_small  # only one farm
 ===================================================================
 """
@@ -51,37 +51,37 @@ class TurbineSpec:
 # SINGLE SOURCE OF TRUTH
 # ===================================================================
 WIND_FARM_East: list[TurbineSpec] = [
-    TurbineSpec("1", tower_height=131.0, x=100, y=0,  z=0.1),
-    TurbineSpec("2", tower_height=131.0, x=150, y=50,  z=0.1),
-    TurbineSpec("3", tower_height=131.0, x=200, y=100, z=0.1),
-    TurbineSpec("4", tower_height=131.0, x=250, y=150, z=0.1),
-    TurbineSpec("5", tower_height=131.0, x=300, y=200, z=0.1),
-    TurbineSpec("6", tower_height=131.0, x=350, y=250, z=0.1),
+    TurbineSpec("1", tower_height=131.0, x=100, y=0,  z=0.1, rotor_blade_length=69),
+    TurbineSpec("2", tower_height=131.0, x=150, y=50,  z=0.1, rotor_blade_length=69),
+    TurbineSpec("3", tower_height=131.0, x=200, y=100, z=0.1, rotor_blade_length=69),
+    TurbineSpec("4", tower_height=131.0, x=250, y=150, z=0.1, rotor_blade_length=69),
+    TurbineSpec("5", tower_height=131.0, x=300, y=200, z=0.1, rotor_blade_length=69),
+    TurbineSpec("6", tower_height=131.0, x=350, y=250, z=0.1, rotor_blade_length=69),
 ]
 
 WIND_FARM_West: list[TurbineSpec] = [
-    TurbineSpec("1", tower_height=131.0, x=-100, y=0, z=0.1, yaw=math.pi),
-    TurbineSpec("2", tower_height=131.0, x=-150, y=-50, z=0.1, yaw=math.pi),
-    TurbineSpec("3", tower_height=131.0, x=-200, y=-100, z=0.1, yaw=math.pi),
-    TurbineSpec("4", tower_height=131.0, x=-250, y=-150, z=0.1, yaw=math.pi),
-    TurbineSpec("5", tower_height=131.0, x=-300, y=-200, z=0.1, yaw=math.pi),
-    TurbineSpec("6", tower_height=131.0, x=-350, y=-250, z=0.1, yaw=math.pi),
+    TurbineSpec("1", tower_height=131.0, x=-100, y=0, z=0.1, yaw=math.pi, rotor_blade_length=69),
+    TurbineSpec("2", tower_height=131.0, x=-150, y=-50, z=0.1, yaw=math.pi, rotor_blade_length=69),
+    TurbineSpec("3", tower_height=131.0, x=-200, y=-100, z=0.1, yaw=math.pi, rotor_blade_length=69),
+    TurbineSpec("4", tower_height=131.0, x=-250, y=-150, z=0.1, yaw=math.pi, rotor_blade_length=69),
+    TurbineSpec("5", tower_height=131.0, x=-300, y=-200, z=0.1, yaw=math.pi, rotor_blade_length=69),
+    TurbineSpec("6", tower_height=131.0, x=-350, y=-250, z=0.1, yaw=math.pi, rotor_blade_length=69),
 ]
 WIND_FARM_North: list[TurbineSpec] = [
-    TurbineSpec("1", tower_height=131.0, x=0, y=100, z=0.1, yaw=math.pi/2),
-    TurbineSpec("2", tower_height=131.0, x=-50, y=150, z=0.1, yaw=math.pi/2),
-    TurbineSpec("3", tower_height=131.0, x=-100, y=200, z=0.1, yaw=math.pi/2),
-    TurbineSpec("4", tower_height=131.0, x=-150, y=250, z=0.1, yaw=math.pi/2),
-    TurbineSpec("5", tower_height=131.0, x=-200, y=300, z=0.1, yaw=math.pi/2),
-    TurbineSpec("6", tower_height=131.0, x=-250, y=350, z=0.1, yaw=math.pi/2),
+    TurbineSpec("1", tower_height=131.0, x=0, y=100, z=0.1, yaw=math.pi/2, rotor_blade_length=69),
+    TurbineSpec("2", tower_height=131.0, x=-50, y=150, z=0.1, yaw=math.pi/2, rotor_blade_length=69),
+    TurbineSpec("3", tower_height=131.0, x=-100, y=200, z=0.1, yaw=math.pi/2, rotor_blade_length=69),
+    TurbineSpec("4", tower_height=131.0, x=-150, y=250, z=0.1, yaw=math.pi/2, rotor_blade_length=69),
+    TurbineSpec("5", tower_height=131.0, x=-200, y=300, z=0.1, yaw=math.pi/2, rotor_blade_length=69),
+    TurbineSpec("6", tower_height=131.0, x=-250, y=350, z=0.1, yaw=math.pi/2, rotor_blade_length=69),
 ]
 WIND_FARM_South: list[TurbineSpec] = [
-    TurbineSpec("1", tower_height=131.0, x=0, y=-100, z=0.1, yaw=3*math.pi/2),
-    TurbineSpec("2", tower_height=131.0, x=50, y=-150, z=0.1, yaw=3*math.pi/2),
-    TurbineSpec("3", tower_height=131.0, x=100, y=-200, z=0.1, yaw=3*math.pi/2),
-    TurbineSpec("4", tower_height=131.0, x=150, y=-250, z=0.1, yaw=3*math.pi/2),
-    TurbineSpec("5", tower_height=131.0, x=200, y=-300, z=0.1, yaw=3*math.pi/2),
-    TurbineSpec("6", tower_height=131.0, x=250, y=-350, z=0.1, yaw=3*math.pi/2),
+    TurbineSpec("1", tower_height=131.0, x=0, y=-100, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69),
+    TurbineSpec("2", tower_height=131.0, x=50, y=-150, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69),
+    TurbineSpec("3", tower_height=131.0, x=100, y=-200, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69),
+    TurbineSpec("4", tower_height=131.0, x=150, y=-250, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69),
+    TurbineSpec("5", tower_height=131.0, x=200, y=-300, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69),
+    TurbineSpec("6", tower_height=131.0, x=250, y=-350, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69),
 ]
 
 # Every farm that should be exported / started together.
@@ -127,8 +127,7 @@ def _turbine_body(spec: TurbineSpec) -> str:
 
     tower_z   = H / 2.0 + 0.1
     nacelle_z = H + 0.1 + nacelle_h / 2.0
-    hub_z     = nacelle_z
-    hub_x     = nacelle_len / 4.0 + tower_radius
+    hub_x     = nacelle_len / 4.0 + tower_radius   # now relative to the nacelle body, not the tower
 
     hub_r     = 0.03 * H
     hub_hl    = 0.02 * H
@@ -154,18 +153,22 @@ def _turbine_body(spec: TurbineSpec) -> str:
     blades = "\n".join(blade(i + 1, rx) for i, rx in enumerate(radials))
 
     return f"""\
-    <!-- {n} | tower_height = {_f(H)} | pos ({_f(spec.x)}, {_f(spec.y)}) | yaw {_f(yaw_deg)} deg -->
+    <!-- {n} | tower_height = {_f(H)} | pos ({_f(spec.x)}, {_f(spec.y)}) | initial yaw {_f(yaw_deg)} deg -->
     <body name="{n}_base" pos="{_f(spec.x)} {_f(spec.y)} {_f(spec.z)}" euler="0 0 {_f(yaw_deg)}">
       <geom name="{n}_tower_base" type="box" size="{_f(base_half)} {_f(base_half)} 0.1" pos="0 0 0" material="base_mat"/>
       <geom name="{n}_tower" type="cylinder" size="{_f(tower_radius)} {_f(H/2)}" pos="0 0 {_f(tower_z)}" material="tower_mat"/>
-      <geom name="{n}_nacelle" type="box" size="{_f(nacelle_len/2)} {_f(tower_radius)} {_f(nacelle_h/2)}" pos="{_f(-nacelle_len/4)} 0 {_f(nacelle_z)}" material="nacelle_mat"/>
 
-      <body name="{n}_hub" pos="{_f(hub_x)} 0 {_f(hub_z)}">
-        <joint name="{n}_rotor" class="rotor"/>
-        <geom name="{n}_hub_geom" type="cylinder" size="{_f(hub_r)} {_f(hub_hl)}" euler="0 90 0" pos="0 0 0" material="hub_mat"/>
-        <geom name="{n}_spinner" type="ellipsoid" size="{_f(spin_a)} {_f(spin_b)} {_f(spin_b)}" pos="{_f(0.04*H)} 0 0" material="hub_mat"/>
+      <body name="{n}_nacelle" pos="0 0 {_f(nacelle_z)}">
+        <joint name="{n}_yaw" class="yaw"/>
+        <geom name="{n}_nacelle_geom" type="box" size="{_f(nacelle_len/2)} {_f(tower_radius)} {_f(nacelle_h/2)}" pos="{_f(-nacelle_len/4)} 0 0" material="nacelle_mat"/>
+
+        <body name="{n}_hub" pos="{_f(hub_x)} 0 0">
+          <joint name="{n}_rotor" class="rotor"/>
+          <geom name="{n}_hub_geom" type="cylinder" size="{_f(hub_r)} {_f(hub_hl)}" euler="0 90 0" pos="0 0 0" material="hub_mat"/>
+          <geom name="{n}_spinner" type="ellipsoid" size="{_f(spin_a)} {_f(spin_b)} {_f(spin_b)}" pos="{_f(0.04*H)} 0 0" material="hub_mat"/>
 
 {blades}
+        </body>
       </body>
     </body>"""
 
@@ -200,6 +203,9 @@ def build_mujoco_xml(specs: list[TurbineSpec], ground: float = None) -> str:
   <default>
     <default class="rotor">
       <joint type="hinge" axis="1 0 0" limited="false" damping="0.25" frictionloss="0.02"/>
+    </default>
+    <default class="yaw">
+      <joint type="hinge" axis="0 0 1" limited="false" damping="0.25" frictionloss="0.02"/>
     </default>
     <geom contype="0" conaffinity="0"/>
   </default>
@@ -294,8 +300,12 @@ def main() -> None:
     ap.add_argument("--wind", type=float, default=8.0, help="initial wind speed for the viewer (m/s)")
     ap.add_argument("--needed", type=float, default=None,
                     help="required power output in MW; only enough turbines spin to meet it")
-    ap.add_argument("--direction", choices=["N", "S", "E", "W"], default="N",
-                    help="wind comes FROM this compass point; change live with N/S/W/E in the viewer")
+    ap.add_argument("--direction", type=float, default=0.0,
+                    help="wind comes FROM this compass bearing in degrees (0=N, 90=E, 180=S, "
+                         "270=W); change live in the viewer with 'd' then Up/Down arrows")
+    ap.add_argument("--yaw-rate", type=float, default=None,
+                    help="nacelle yaw slew rate in deg/s while tracking the wind (default: "
+                         "the viewer's own default, currently 10 deg/s)")
     ap.add_argument("--all-spin", action="store_true",
                     help="disable directional gating: every turbine spins regardless of facing")
     ap.add_argument("--publish", action="store_true", help="publish rpm/power/energy to ROS 2 topics")
@@ -311,9 +321,11 @@ def main() -> None:
 
     if args.launch or args.headless is not None:
         cmd = [sys.executable, "wind_turbine_sim.py", "--model", str(path),
-               "--wind", str(args.wind), "--direction", args.direction]
+               "--wind", str(args.wind), "--direction", str(args.direction)]
         if args.needed is not None:
             cmd += ["--needed", str(args.needed)]
+        if args.yaw_rate is not None:
+            cmd += ["--yaw-rate", str(args.yaw_rate)]
         if args.all_spin:
             cmd += ["--all-spin"]
         if args.publish:
