@@ -17,13 +17,17 @@ Topics (std_msgs/Float64), one per turbine plus farm totals:
 
 Other options:
     --wind 8 --tsr 6 --cp 0.45 --axial --aero --headless N
-    --yaw-rate 10   nacelle yaw slew speed in deg/s (default 10) while it turns to face the wind
+    --yaw-rate 10     nacelle yaw slew speed in deg/s (default 10) while it turns to face the wind
+    --rotor-accel 1.0 max RPM/s the blades can speed up or slow down (default 1.0) -- rotor
+                      inertia, so wind gusts/lulls cause a gradual ramp, not an instant jump
 Viewer keys:
     S = wind-SPEED mode, then Up/Down = +/- 1 m/s
     D = wind-DIRECTION mode, then Up/Down = +/- 5 deg (0-360, wraps around)
     R = reset (also zeros energy)
 Each turbine's nacelle automatically yaws to face wherever the wind is currently
-coming from, slewing smoothly rather than snapping to the new heading.
+coming from, slewing smoothly rather than snapping to the new heading. Rotor RPM
+and generated power likewise ramp up/down toward their wind-driven target instead
+of snapping there instantly.
 ===================================================================
 """
 
@@ -52,7 +56,7 @@ class QueryDriver:
 
     def __init__(self, model: mujoco.MjModel, axial: bool = False, tsr: float = formulas.TSR,
                  needed_mw: float = None, rho: float = formulas.RHO, c_p: float = formulas.C_P,
-                 facing: bool = False, yaw_rate_deg: float = 10.0):
+                 facing: bool = False, yaw_rate_deg: float = 10.0, rotor_accel_rpm_s: float = 1.0):
         self.model = model
         self.axial = axial
         self.facing = facing        # if True: only turbines facing the wind spin
@@ -61,6 +65,7 @@ class QueryDriver:
         self.rho = rho
         self.c_p = c_p
         self.yaw_rate_deg = yaw_rate_deg   # nacelle slew speed while tracking the wind
+        self.rotor_accel_rpm_s = rotor_accel_rpm_s   # max RPM change per second (rotor inertia)
         self.needed_w = None if needed_mw is None else needed_mw * 1e6
         self.rotors = []            # (name, body_id, qpos_adr, dof_adr, axis_local, D)
         self.yaws = []               # (name, qpos_adr, dof_adr, base_yaw_rad)
@@ -93,6 +98,7 @@ class QueryDriver:
         self.names = [r[0] for r in self.rotors]
         self.energy_wh = {n: 0.0 for n in self.names}    # cumulative per turbine
         self.total_energy_wh = 0.0
+        self.rotor_rpm = {k: 0.0 for k in range(len(self.rotors))}   # actual (ramped) RPM per rotor
         self.last_readings = {}                          # name -> (rpm, power_w, energy_wh, active)
         self.last_total_power = 0.0
 
@@ -174,16 +180,26 @@ class QueryDriver:
         self._update_yaw(data, wind_vec, dt)
         active, rows = self._active_set(data, wind_vec)
         total_power = 0.0
-        for k, rpm, power in rows:
+        max_rpm_step = self.rotor_accel_rpm_s * dt
+        for k, target_rpm, target_power in rows:
             name, body_id, qpadr, dadr, axis_local, D = self.rotors[k]
             is_on = k in active
-            omega = (rpm * 2.0 * np.pi / 60.0) if is_on else 0.0
+            target_rpm_eff = target_rpm if is_on else 0.0   # idle/off rotors coast down to 0
+
+            current_rpm = self.rotor_rpm[k]
+            step = float(np.clip(target_rpm_eff - current_rpm, -max_rpm_step, max_rpm_step))
+            current_rpm += step
+            self.rotor_rpm[k] = current_rpm
+
+            omega = current_rpm * 2.0 * np.pi / 60.0
             data.qvel[dadr] = omega
             data.qpos[qpadr] += omega * dt
-            gen = power if is_on else 0.0                 # idle turbines make nothing
+
+            # power builds up with RPM instead of jumping straight to the target
+            ramp_frac = 0.0 if target_rpm_eff <= 1e-9 else min(1.0, current_rpm / target_rpm_eff)
+            gen = target_power * ramp_frac if is_on else 0.0
             self.energy_wh[name] += gen * dt / 3600.0
-            self.last_readings[name] = (omega * 60.0 / (2 * np.pi), gen,
-                                        self.energy_wh[name], is_on)
+            self.last_readings[name] = (current_rpm, gen, self.energy_wh[name], is_on)
             total_power += gen
         self.total_energy_wh += total_power * dt / 3600.0
         self.last_total_power = total_power
@@ -425,6 +441,9 @@ def main():
     ap.add_argument("--cp", type=float, default=formulas.C_P, help="power coefficient c_p (default 0.45)")
     ap.add_argument("--yaw-rate", type=float, default=10.0,
                     help="nacelle yaw slew rate in deg/s while tracking the wind (default 10)")
+    ap.add_argument("--rotor-accel", type=float, default=1.0,
+                    help="max RPM change per second (rotor inertia): how fast the blades "
+                         "speed up or slow down toward the wind-driven target (default 1.0)")
     ap.add_argument("--publish", action="store_true", help="publish rpm/power/energy to ROS 2 topics")
     args = ap.parse_args()
 
@@ -439,7 +458,7 @@ def main():
         facing = not (args.axial or args.all_spin)
         driver = QueryDriver(model, axial=args.axial, tsr=args.tsr,
                              needed_mw=args.needed, rho=RHO, c_p=args.cp, facing=facing,
-                             yaw_rate_deg=args.yaw_rate)
+                             yaw_rate_deg=args.yaw_rate, rotor_accel_rpm_s=args.rotor_accel)
         mode = (f"wind FROM {args.direction:.1f} deg, facing-gated" if facing
                 else "axial wind" if args.axial else "scalar wind (all spin)")
         print(f"QUERY model ({mode}, TSR={args.tsr:g}):")

@@ -51,37 +51,37 @@ class TurbineSpec:
 # SINGLE SOURCE OF TRUTH
 # ===================================================================
 WIND_FARM_East: list[TurbineSpec] = [
-    TurbineSpec("1", tower_height=131.0, x=100, y=0,  z=0.1, rotor_blade_length=69),
-    TurbineSpec("2", tower_height=131.0, x=150, y=50,  z=0.1, rotor_blade_length=69),
-    TurbineSpec("3", tower_height=131.0, x=200, y=100, z=0.1, rotor_blade_length=69),
-    TurbineSpec("4", tower_height=131.0, x=250, y=150, z=0.1, rotor_blade_length=69),
-    TurbineSpec("5", tower_height=131.0, x=300, y=200, z=0.1, rotor_blade_length=69),
-    TurbineSpec("6", tower_height=131.0, x=350, y=250, z=0.1, rotor_blade_length=69),
+    TurbineSpec("1", tower_height=131.0, x=100, y=0,  z=0.1, rotor_blade_length=69.125),
+    TurbineSpec("2", tower_height=131.0, x=150, y=50,  z=0.1, rotor_blade_length=69.125),
+    TurbineSpec("3", tower_height=131.0, x=200, y=100, z=0.1, rotor_blade_length=69.125),
+    TurbineSpec("4", tower_height=131.0, x=250, y=150, z=0.1, rotor_blade_length=69.125),
+    TurbineSpec("5", tower_height=131.0, x=300, y=200, z=0.1, rotor_blade_length=69.125),
+    TurbineSpec("6", tower_height=131.0, x=350, y=250, z=0.1, rotor_blade_length=69.125),
 ]
 
 WIND_FARM_West: list[TurbineSpec] = [
-    TurbineSpec("1", tower_height=131.0, x=-100, y=0, z=0.1, yaw=math.pi, rotor_blade_length=69),
-    TurbineSpec("2", tower_height=131.0, x=-150, y=-50, z=0.1, yaw=math.pi, rotor_blade_length=69),
-    TurbineSpec("3", tower_height=131.0, x=-200, y=-100, z=0.1, yaw=math.pi, rotor_blade_length=69),
-    TurbineSpec("4", tower_height=131.0, x=-250, y=-150, z=0.1, yaw=math.pi, rotor_blade_length=69),
-    TurbineSpec("5", tower_height=131.0, x=-300, y=-200, z=0.1, yaw=math.pi, rotor_blade_length=69),
-    TurbineSpec("6", tower_height=131.0, x=-350, y=-250, z=0.1, yaw=math.pi, rotor_blade_length=69),
+    TurbineSpec("1", tower_height=131.0, x=-100, y=0, z=0.1, yaw=math.pi, rotor_blade_length=69.125),
+    TurbineSpec("2", tower_height=131.0, x=-150, y=-50, z=0.1, yaw=math.pi, rotor_blade_length=69.125),
+    TurbineSpec("3", tower_height=131.0, x=-200, y=-100, z=0.1, yaw=math.pi, rotor_blade_length=69.125),
+    TurbineSpec("4", tower_height=131.0, x=-250, y=-150, z=0.1, yaw=math.pi, rotor_blade_length=69.125),
+    TurbineSpec("5", tower_height=131.0, x=-300, y=-200, z=0.1, yaw=math.pi, rotor_blade_length=69.125),
+    TurbineSpec("6", tower_height=131.0, x=-350, y=-250, z=0.1, yaw=math.pi, rotor_blade_length=69.125),
 ]
 WIND_FARM_North: list[TurbineSpec] = [
-    TurbineSpec("1", tower_height=131.0, x=0, y=100, z=0.1, yaw=math.pi/2, rotor_blade_length=69),
-    TurbineSpec("2", tower_height=131.0, x=-50, y=150, z=0.1, yaw=math.pi/2, rotor_blade_length=69),
-    TurbineSpec("3", tower_height=131.0, x=-100, y=200, z=0.1, yaw=math.pi/2, rotor_blade_length=69),
-    TurbineSpec("4", tower_height=131.0, x=-150, y=250, z=0.1, yaw=math.pi/2, rotor_blade_length=69),
-    TurbineSpec("5", tower_height=131.0, x=-200, y=300, z=0.1, yaw=math.pi/2, rotor_blade_length=69),
-    TurbineSpec("6", tower_height=131.0, x=-250, y=350, z=0.1, yaw=math.pi/2, rotor_blade_length=69),
+    TurbineSpec("1", tower_height=131.0, x=0, y=100, z=0.1, yaw=math.pi/2, rotor_blade_length=69.125),
+    TurbineSpec("2", tower_height=131.0, x=-50, y=150, z=0.1, yaw=math.pi/2, rotor_blade_length=69.125),
+    TurbineSpec("3", tower_height=131.0, x=-100, y=200, z=0.1, yaw=math.pi/2, rotor_blade_length=69.125),
+    TurbineSpec("4", tower_height=131.0, x=-150, y=250, z=0.1, yaw=math.pi/2, rotor_blade_length=69.125),
+    TurbineSpec("5", tower_height=131.0, x=-200, y=300, z=0.1, yaw=math.pi/2, rotor_blade_length=69.125),
+    TurbineSpec("6", tower_height=131.0, x=-250, y=350, z=0.1, yaw=math.pi/2, rotor_blade_length=69.125),
 ]
 WIND_FARM_South: list[TurbineSpec] = [
-    TurbineSpec("1", tower_height=131.0, x=0, y=-100, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69),
-    TurbineSpec("2", tower_height=131.0, x=50, y=-150, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69),
-    TurbineSpec("3", tower_height=131.0, x=100, y=-200, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69),
-    TurbineSpec("4", tower_height=131.0, x=150, y=-250, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69),
-    TurbineSpec("5", tower_height=131.0, x=200, y=-300, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69),
-    TurbineSpec("6", tower_height=131.0, x=250, y=-350, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69),
+    TurbineSpec("1", tower_height=131.0, x=0, y=-100, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69.125),
+    TurbineSpec("2", tower_height=131.0, x=50, y=-150, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69.125),
+    TurbineSpec("3", tower_height=131.0, x=100, y=-200, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69.125),
+    TurbineSpec("4", tower_height=131.0, x=150, y=-250, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69.125),
+    TurbineSpec("5", tower_height=131.0, x=200, y=-300, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69.125),
+    TurbineSpec("6", tower_height=131.0, x=250, y=-350, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69.125),
 ]
 
 # Every farm that should be exported / started together.
@@ -306,6 +306,9 @@ def main() -> None:
     ap.add_argument("--yaw-rate", type=float, default=None,
                     help="nacelle yaw slew rate in deg/s while tracking the wind (default: "
                          "the viewer's own default, currently 10 deg/s)")
+    ap.add_argument("--rotor-accel", type=float, default=None,
+                    help="max RPM change per second (rotor inertia); default: the viewer's "
+                         "own default, currently 1.0 RPM/s")
     ap.add_argument("--all-spin", action="store_true",
                     help="disable directional gating: every turbine spins regardless of facing")
     ap.add_argument("--publish", action="store_true", help="publish rpm/power/energy to ROS 2 topics")
@@ -326,6 +329,8 @@ def main() -> None:
             cmd += ["--needed", str(args.needed)]
         if args.yaw_rate is not None:
             cmd += ["--yaw-rate", str(args.yaw_rate)]
+        if args.rotor_accel is not None:
+            cmd += ["--rotor-accel", str(args.rotor_accel)]
         if args.all_spin:
             cmd += ["--all-spin"]
         if args.publish:
