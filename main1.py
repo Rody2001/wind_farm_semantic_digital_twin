@@ -25,7 +25,10 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
 
-from wind_farm_export import combined_specs
+from wind_farm_export import combined_specs, R_BLADE_LENGTH
+from semantic_wind_driver import SemanticWindDriver, TurbineRuntime, set_wind
+from wind_state_file import DEFAULT_PATH as WIND_STATE_PATH
+from ros_turbine_subscriber import RosTurbineSubscriber
 
 
 @dataclass
@@ -240,19 +243,11 @@ def main():
         root = Body(name=PrefixedName("root"))
 
 
-        rotor_blade_dof = DegreeOfFreedom(name=PrefixedName('rotor_blade'))
-        rotor_blade_dof.limits.upper.position = 0
-        rotor_blade_dof.limits.lower.position = 1.606
-        world.add_degree_of_freedom(rotor_blade_dof)
-
-        # commented out, because the world doesn't like DoFs that are not linked to a connection
-        wind_speed = DegreeOfFreedom(name=PrefixedName('wind_speed'))
-        world.add_degree_of_freedom(wind_speed)
-
         # =====================================================================
         # wind turbines  (built from ALL farms via combined_specs - one source of truth)
         # =====================================================================
         turbine_hubs = {}
+        turbine_runtimes = {}
         for spec in combined_specs():
             hub, nacelle = WindTurbine.create_with_new_body_in_world(
                 world=world,
@@ -264,22 +259,65 @@ def main():
                     x=spec.x, y=spec.y, z=spec.z, yaw=spec.yaw),
             )
             turbine_hubs[spec.name] = {"hub": hub, "nacelle": nacelle}
-
+            blade_length = spec.rotor_blade_length or (spec.tower_height * R_BLADE_LENGTH)
+            turbine_runtimes[spec.name] = TurbineRuntime(
+                name=spec.name, hub_conn=hub, nacelle_conn=nacelle,
+                blade_length=blade_length, base_yaw_rad=spec.yaw,
+            )
 
     # =====================================================================
-    # ROS2 Node and Visualization Publisher
+    # ROS2 Node (created early so we can subscribe before building the driver)
     # =====================================================================
     rclpy.init()
     node = rclpy.create_node("semantic_digital_twin")
+
+    # Subscribe to the per-turbine rpm/power_w/energy_kwh topics that
+    # wind_turbine_sim.py publishes when launched with --publish. Once attached,
+    # the driver mirrors these exactly instead of recomputing rpm on its own --
+    # see ros_turbine_subscriber.py and SemanticWindDriver.step().
+    ros_subscriber = RosTurbineSubscriber(node, turbine_runtimes.keys())
+
+    # =====================================================================
+    # Live wind -> nacelle yaw + rotor RPM driver (mirrors QueryDriver in
+    # wind_turbine_sim.py, but for this semantic-digital-twin World)
+    # =====================================================================
+    # follow_wind_file=WIND_STATE_PATH makes this world's nacelles yaw to track
+    # whatever wind wind_turbine_sim.py's viewer is currently showing (change it
+    # there with 's'/'d' + arrows, see it reflected here). rpm/power/energy come
+    # from ros_subscriber instead, once wind_turbine_sim.py is run with --publish.
+    # For standalone testing without MuJoCo running at all, pass follow_wind_file=None
+    # and ros_subscriber=None, and use set_wind(driver, ...) manually.
+    driver = SemanticWindDriver(world, turbine_runtimes, follow_wind_file=WIND_STATE_PATH,
+                                ros_subscriber=ros_subscriber)
+    set_wind(driver, speed=0.0, direction_deg=0.0)   # initial value until the file updates it
+
+    # =====================================================================
+    # Visualization Publisher
+    # =====================================================================
     viz = VizMarkerPublisher(_world=world, node=node)
     viz.with_tf_publisher()
+
+    # Step the driver on a ROS2 timer so the turbines keep animating (yaw slewing,
+    # rotor spinning up/down) and the tf/marker publisher keeps re-publishing the
+    # updated poses -- the semantic-world equivalent of the MuJoCo viewer loop.
+    step_period = 0.05   # 20 Hz
+    node.create_timer(step_period, lambda: driver.step(step_period))
+
     # Spin ROS2 node in background thread
     thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
     thread.start()
 
-    return world
+    return world, driver
 
 #main()
 #print(main().semantic_annotations)
 if __name__ == "__main__":
-        main()
+    world, driver = main()
+    print("Running. Try, e.g. from another terminal or a debugger attached to this")
+    print("process: driver.set_wind(8.0, 45.0) then driver.status().")
+    print("Ctrl+C to stop.")
+    try:
+        while True:
+            time.sleep(1.0)
+    except KeyboardInterrupt:
+        pass

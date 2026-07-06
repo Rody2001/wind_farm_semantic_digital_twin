@@ -37,6 +37,7 @@ import numpy as np
 import mujoco
 
 import turbine_formulas as formulas  # pure cut-in + RPM + power formulas (no framework)
+from wind_state_file import write_wind_state  # shares live wind with main1.py's semantic world
 
 RHO = formulas.RHO   # air density [kg/m^3]
 CD  = 1.28           # flat-plate drag coeff  (aero mode only)
@@ -321,14 +322,9 @@ def make_wind(speed, heading_deg=0.0):
     return np.array([np.cos(a), np.sin(a), 0.0]) * speed
 
 
-# Wind *from* a compass bearing (0-360 deg) -> the velocity vector it blows along.
-# Map: +X = East, +Y = North. bearing is measured clockwise from North, matching
-# a real compass (0=N, 90=E, 180=S, 270=W). "from N" (0 deg) blows toward -Y (south), etc.
-def wind_from_bearing(speed, bearing_deg):
-    """World-frame wind vector for wind coming FROM `bearing_deg` (0-360, compass bearing)."""
-    a = np.deg2rad(bearing_deg)
-    source = np.array([np.sin(a), np.cos(a), 0.0])   # unit vector toward where wind comes from
-    return -source * speed
+# wind_from_bearing now lives in turbine_formulas.py (shared with the semantic-digital-twin
+# driver so both worlds agree on the same wind-direction convention).
+wind_from_bearing = formulas.wind_from_bearing
 
 
 # --------------------------------------------------------------------------- #
@@ -336,6 +332,7 @@ def run_headless(model, data, driver, seconds, wind_speed, publisher=None, direc
     steps = int(seconds / model.opt.timestep)
     pub_every = max(1, int(0.1 / model.opt.timestep))    # ~10 Hz
     wind = wind_from_bearing(wind_speed, direction)
+    write_wind_state(wind_speed, direction)   # let the semantic world see this run's wind too
     print(f"Headless: {seconds}s @ {wind_speed} m/s (wind FROM {direction:.1f} deg)\n")
     for i in range(steps):
         driver.advance(data, wind, model.opt.timestep)
@@ -358,6 +355,7 @@ def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0):
     import mujoco.viewer
     # mode: "speed" -> arrows change wind speed, "direction" -> arrows change bearing (0-360)
     state = {"speed": wind_speed, "direction": direction % 360.0, "mode": "speed"}
+    write_wind_state(state["speed"], state["direction"])  # publish initial wind immediately
 
     def key_cb(keycode):
         if keycode in (83, 115):                     # 's' / 'S' -> speed mode
@@ -385,6 +383,7 @@ def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0):
                 state["direction"] = (state["direction"] - DIR_STEP) % 360.0
         else:
             return
+        write_wind_state(state["speed"], state["direction"])  # tell the semantic world
         if state["mode"] == "speed":
             print(f"  wind = {state['speed']:.1f} m/s")
         else:

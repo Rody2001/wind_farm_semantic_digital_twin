@@ -1,5 +1,9 @@
+import time
+
 import numpy as np
 import math
+
+from main1 import main
 
 # SemanticAnnotation is only available with the framework installed.
 # Guarded so queries.py also imports standalone (e.g. just to compare farms).
@@ -9,42 +13,13 @@ except Exception:  # noqa: BLE001
     SemanticAnnotation = "SemanticAnnotation"  # type: ignore
 
 # Pure formulas + the two farm definitions (no framework dependency).
-from turbine_formulas import min_wind_speed_for_length
-from wind_farm_export import R_BLADE_LENGTH, TurbineSpec#, WIND_FARM_A_small, WIND_FARM_B_big
+from turbine_formulas import min_wind_speed_for_length, real_efficiency, wind_power_for_length
+from wind_farm_export import R_BLADE_LENGTH, TurbineSpec
 
 
-# ------------------------------------------------------------------ #
-# single-turbine physics
-# ------------------------------------------------------------------ #
-def wind_power_from_length(rho: float, wind_speed: float, blade_length: float) -> float:
-    """Available wind power [W] through the rotor disc: 0.5 * rho * v^3 * (pi * L^2)."""
-    effect_area = np.pi * (blade_length ** 2)
-    return 0.5 * rho * wind_speed ** 3 * effect_area
 
-
-def wind_power(rho: float, wind_speed: float, blade: SemanticAnnotation) -> float:
-    return wind_power_from_length(rho, wind_speed, blade.bodies[0].visual.scale.z)
-
-
-def real_efficiency_calculater(c_p: float, k_m: float = 0.015, k_e: float = 0.0125,
-                               k_et: float = 0.065, k_t: float = 0.025, k_w: float = 0) -> float:
-    real_efficiency = (1 - k_m) * (1 - k_e) * (1 - k_et) * (1 - k_t) * (1 - k_w) * c_p
-    return real_efficiency
-
-
-def generated_energy(rho: float, wind_speed: float, blade: SemanticAnnotation, c_p: float) -> float:
-    return (real_efficiency_calculater(c_p) * wind_power(rho, wind_speed, blade))
-
-
-def minimum_wind_speed(blade: SemanticAnnotation) -> float:
-    return min_wind_speed_for_length(blade.bodies[0].visual.scale.z)
-
-
-# ------------------------------------------------------------------ #
-# NEW: farm-level energy + comparison
-# ------------------------------------------------------------------ #
 def _blade_length(spec: TurbineSpec) -> float:
-    """Blade length L for a turbine spec (same formula as main.py / the exporter)."""
+    """Blade length L for a turbine spec."""
     return spec.rotor_blade_length or (spec.tower_height * R_BLADE_LENGTH)
 
 
@@ -67,43 +42,43 @@ def farm_power(farm: list[TurbineSpec], rho: float = 1.225, wind_speed: float = 
     A turbine below its cut-in wind speed is not spinning and contributes 0.
     """
     total = 0.0
-    eff = real_efficiency_calculater(c_p)
+    eff = real_efficiency(c_p)
     for spec in farm:
         L = _blade_length(spec)
         v = hub_wind_speed(wind_speed, spec.tower_height, ref_height, alpha)
         if abs(v) < min_wind_speed_for_length(L):
             continue                       # below cut-in -> no spin -> no power
-        total += eff * wind_power_from_length(rho, v, L)
+        total += eff * wind_power_for_length(rho, v, L)
     return total
 
 
-# def which_farm_produces_more(rho: float = 1.225, wind_speed: float = 8.0,
-#                              c_p: float = 0.45, alpha: float = 0.0) -> dict:
-#     """Compare WIND_FARM_A_small vs WIND_FARM_B_big and report which makes more power."""
-#     pa = farm_power(WIND_FARM_A_small, rho, wind_speed, c_p, alpha)
-#     pb = farm_power(WIND_FARM_B_big, rho, wind_speed, c_p, alpha)
-#     winner = "A" if pa > pb else "B" if pb > pa else "tie"
-#     lo = min(pa, pb)
-#     return {
-#         "farm_A_W": pa,
-#         "farm_B_W": pb,
-#         "winner": winner,
-#         "ratio": (max(pa, pb) / lo) if lo > 0 else float("inf"),
-#     }
-#
-#
-# if __name__ == "__main__":
-#     # ---- farm comparison (no ROS needed) ----
-#     res = which_farm_produces_more(wind_speed=8.0, c_p=0.45)
-#     print(f"Farm A: {res['farm_A_W'] / 1e6:8.3f} MW   "
-#           f"({len(WIND_FARM_A_small)} turbines)")
-#     print(f"Farm B: {res['farm_B_W'] / 1e6:8.3f} MW   "
-#           f"({len(WIND_FARM_B_big)} turbines)")
-#     print(f"-> Farm {res['winner']} produces more "
-#           f"({res['ratio']:.2f}x) at 8 m/s")
 
-#---- original digital-twin queries (need the framework) ----
-# from main import main
-# world1 = main()
-# print(minimum_wind_speed(world1.get_semantic_annotation_by_name("wind2_rotor_blade1")))
-# print(minimum_wind_speed(world1.get_semantic_annotation_by_name("wind3_rotor_blade1")))
+# ------------------------------------------------------------------ #
+# LIVE queries against a running SemanticWindDriver (main1.py)
+# ------------------------------------------------------------------ #
+def is_turbine_spinning(driver, name: str, eps: float = 0.05) -> bool:
+    """True if turbine `name`'s rotor is currently turning (RPM above a small threshold)."""
+    return driver.is_spinning(name, eps=eps)
+
+
+def turbine_rpm(driver, name: str) -> float:
+    """Current (ramped) RPM of turbine `name`, live from the running driver."""
+    return driver.rpm(name)
+
+
+def turbine_nacelle_yaw_deg(driver, name: str) -> float:
+    """Current nacelle yaw angle of turbine `name`, in degrees, live from the running driver."""
+    return driver.nacelle_yaw_deg(name)
+
+
+def turbine_status(driver, name: str = None) -> dict:
+    """Full live snapshot: wind speed/direction plus one turbine (or all of them)."""
+    return driver.status(name)
+
+
+# world, driver = main()
+# time.sleep(5)   # let the 20 Hz timer step the driver and ramp RPM up
+# print(turbine_status(driver, "Farm_East_1"))
+# print(turbine_status(driver, "Farm_North_1"))
+# print(turbine_status(driver, "Farm_West_1"))
+# print(turbine_status(driver, "Farm_South_1"))

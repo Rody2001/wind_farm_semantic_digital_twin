@@ -12,7 +12,7 @@ Run (the button):
     python wind_farm_export.py                 # export ALL farms -> wind_turbine_generated.xml
     python wind_farm_export.py --launch        # export ALL farms, then open the viewer
     python wind_farm_export.py --launch --direction 90   # wind FROM 90 deg (east) at start
-    python wind_farm_export.py --farm A_small  # only one farm
+    python wind_farm_export.py --farm Farm_North  # only one farm
 ===================================================================
 """
 

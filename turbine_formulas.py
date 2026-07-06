@@ -22,6 +22,19 @@ RHO = 1.225        # air density [kg/m^3]
 C_P = 0.45         # power coefficient (before drivetrain/other losses)
 
 
+# ---- wind vector ---------------------------------------------------- #
+def wind_from_bearing(speed: float, bearing_deg: float) -> np.ndarray:
+    """World-frame wind vector for wind coming FROM `bearing_deg` (0-360, compass bearing).
+
+    Map: +X = East, +Y = North. bearing is measured clockwise from North, matching
+    a real compass (0=N, 90=E, 180=S, 270=W). "from N" (0 deg) blows toward -Y (south).
+    Shared by the MuJoCo sim and the semantic-digital-twin driver so both worlds agree.
+    """
+    a = np.deg2rad(bearing_deg)
+    source = np.array([np.sin(a), np.cos(a), 0.0])   # unit vector toward where wind comes from
+    return -source * speed
+
+
 # ---- rotation ----------------------------------------------------- #
 def min_wind_speed_for_length(blade_length: float, tsr: float = TSR) -> float:
     """Cut-in wind speed [m/s]: the speed at which the rotor turns at 1 RPM."""
@@ -30,7 +43,7 @@ def min_wind_speed_for_length(blade_length: float, tsr: float = TSR) -> float:
 
 def rpm_for_wind(wind_speed: float, blade_length: float, tsr: float = TSR) -> float:
     """RPM = 60 * v * TSR / (pi * 2 * L); 0 below the 1-RPM cut-in speed."""
-    if abs(wind_speed) < min_wind_speed_for_length(blade_length, tsr):
+    if abs(wind_speed) < min_wind_speed_for_length(blade_length, tsr) or abs(wind_speed) >= 28.0:
         return 0.0
     return (60 * wind_speed * tsr) / (np.pi * 2 * blade_length)
 
