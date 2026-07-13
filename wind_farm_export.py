@@ -12,7 +12,7 @@ Run (the button):
     python wind_farm_export.py                 # export ALL farms -> wind_turbine_generated.xml
     python wind_farm_export.py --launch        # export ALL farms, then open the viewer
     python wind_farm_export.py --launch --direction 90   # wind FROM 90 deg (east) at start
-    python wind_farm_export.py --farm Farm_North  # only one farm
+    python wind_farm_export.py --farm A_small  # only one farm
 ===================================================================
 """
 
@@ -309,6 +309,9 @@ def main() -> None:
     ap.add_argument("--rotor-accel", type=float, default=None,
                     help="max RPM change per second (rotor inertia); default: the viewer's "
                          "own default, currently 1.0 RPM/s")
+    ap.add_argument("--temp", type=float, default=None,
+                    help="initial air temperature in deg C, sets rho via the ideal gas law "
+                         "(default: the viewer's own default, currently 15 degC -> rho=1.225)")
     ap.add_argument("--all-spin", action="store_true",
                     help="disable directional gating: every turbine spins regardless of facing")
     ap.add_argument("--publish", action="store_true", help="publish rpm/power/energy to ROS 2 topics")
@@ -331,6 +334,8 @@ def main() -> None:
             cmd += ["--yaw-rate", str(args.yaw_rate)]
         if args.rotor_accel is not None:
             cmd += ["--rotor-accel", str(args.rotor_accel)]
+        if args.temp is not None:
+            cmd += ["--temp", str(args.temp)]
         if args.all_spin:
             cmd += ["--all-spin"]
         if args.publish:

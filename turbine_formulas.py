@@ -18,8 +18,21 @@ No framework imports (numpy only).
 import numpy as np
 
 TSR = 6.0          # tip-speed ratio (blade-tip speed / wind speed)
-RHO = 1.225        # air density [kg/m^3]
+RHO = 1.225        # air density [kg/m^3] -- standard conditions, see rho_for_temperature(15.0)
 C_P = 0.45         # power coefficient (before drivetrain/other losses)
+
+
+# ---- air density ----------------------------------------------------- #
+def rho_for_temperature(temp_c: float) -> float:
+    """Air density [kg/m^3] from temperature via the ideal gas law.
+
+    rho = M / (R_specific * T), with M = molar mass of dry air [kg/mol],
+    R_specific in the same units ENERCON's datasheet uses, T in Kelvin.
+    rho_for_temperature(15.0) ~= 1.225 kg/m^3, matching the RHO constant
+    above and the "Standardluftdichte" in the ENERCON E-138 datasheet
+    (1.225 kg/m^3 at 15 degC).
+    """
+    return (28.97 * 10**(-3)) / (8.2056 * 10**(-5) * (273.15 + temp_c))
 
 
 # ---- wind vector ---------------------------------------------------- #

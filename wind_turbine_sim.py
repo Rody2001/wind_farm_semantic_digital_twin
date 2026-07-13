@@ -14,15 +14,20 @@ Topics (std_msgs/Float64), one per turbine plus farm totals:
     /wind_farm/<turbine>/energy_kwh   cumulative since start
     /wind_farm/total_power_w
     /wind_farm/total_energy_kwh
+    /wind_farm/temperature_c          current air temperature (deg C)
+    /wind_farm/rho                    current air density (kg/m^3), from temperature_c
 
 Other options:
     --wind 8 --tsr 6 --cp 0.45 --axial --aero --headless N
     --yaw-rate 10     nacelle yaw slew speed in deg/s (default 10) while it turns to face the wind
     --rotor-accel 1.0 max RPM/s the blades can speed up or slow down (default 1.0) -- rotor
                       inertia, so wind gusts/lulls cause a gradual ramp, not an instant jump
+    --temp 15         initial air temperature in deg C (default 15 -> rho=1.225 kg/m^3),
+                      sets air density (rho) via the ideal gas law
 Viewer keys:
     S = wind-SPEED mode, then Up/Down = +/- 1 m/s
     D = wind-DIRECTION mode, then Up/Down = +/- 5 deg (0-360, wraps around)
+    T = TEMPERATURE mode, then Up/Down = +/- 1 degC -- recomputes air density (rho) live
     R = reset (also zeros energy)
 Each turbine's nacelle automatically yaws to face wherever the wind is currently
 coming from, slewing smoothly rather than snapping to the new heading. Rotor RPM
@@ -230,6 +235,7 @@ class QueryDriver:
 class Aerodynamics:
     def __init__(self, model: mujoco.MjModel):
         self.model = model
+        self.rho = RHO   # mutable so temperature control ('T' key) can update it live
         self.blades = []
         for s in range(model.nsite):
             name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_SITE, s)
@@ -264,7 +270,7 @@ class Aerodynamics:
             mujoco.mj_objectVelocity(self.model, data, mujoco.mjtObj.mjOBJ_SITE, site_id, vel6, 0)
             v_rel = wind_vec - vel6[3:6]
             v_n = float(np.dot(v_rel, n))
-            F = 0.5 * RHO * CD * area * v_n * abs(v_n) * n
+            F = 0.5 * self.rho * CD * area * v_n * abs(v_n) * n
             r = p - data.xipos[body_id]
             data.xfrc_applied[body_id, 0:3] += F
             data.xfrc_applied[body_id, 3:6] += np.cross(r, F)
@@ -300,6 +306,8 @@ class RosPublisher:
             self.energy_pubs[n] = self.node.create_publisher(Float64, f"/wind_farm/{base}/energy_kwh", 10)
         self.total_power_pub  = self.node.create_publisher(Float64, "/wind_farm/total_power_w", 10)
         self.total_energy_pub = self.node.create_publisher(Float64, "/wind_farm/total_energy_kwh", 10)
+        self.temperature_pub  = self.node.create_publisher(Float64, "/wind_farm/temperature_c", 10)
+        self.rho_pub          = self.node.create_publisher(Float64, "/wind_farm/rho", 10)
 
     def publish(self, driver):
         F = self._Float64
@@ -309,6 +317,12 @@ class RosPublisher:
             self.energy_pubs[name].publish(F(data=float(energy_wh / 1000.0)))
         self.total_power_pub.publish(F(data=float(driver.last_total_power)))
         self.total_energy_pub.publish(F(data=float(driver.total_energy_wh / 1000.0)))
+        temp_c = getattr(driver, "temp_c", None)
+        if temp_c is not None:
+            self.temperature_pub.publish(F(data=float(temp_c)))
+        rho = getattr(driver, "rho", None)
+        if rho is not None:
+            self.rho_pub.publish(F(data=float(rho)))
         self._rclpy.spin_once(self.node, timeout_sec=0.0)
 
     def shutdown(self):
@@ -349,13 +363,18 @@ def run_headless(model, data, driver, seconds, wind_speed, publisher=None, direc
 
 SPEED_STEP = 1.0    # m/s per arrow press
 DIR_STEP = 5.0       # degrees per arrow press
+TEMP_STEP = 1.0      # deg C per arrow press
+DEFAULT_TEMP_C = 15.0   # matches RHO = 1.225 kg/m^3 (ENERCON's "Standardluftdichte")
 
 
-def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0):
+def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0, temp_c=DEFAULT_TEMP_C):
     import mujoco.viewer
-    # mode: "speed" -> arrows change wind speed, "direction" -> arrows change bearing (0-360)
-    state = {"speed": wind_speed, "direction": direction % 360.0, "mode": "speed"}
+    # mode: "speed"/"direction"/"temperature" -> which quantity the arrow keys control
+    state = {"speed": wind_speed, "direction": direction % 360.0, "mode": "speed",
+             "temp_c": temp_c}
     write_wind_state(state["speed"], state["direction"])  # publish initial wind immediately
+    driver.rho = formulas.rho_for_temperature(state["temp_c"])
+    driver.temp_c = state["temp_c"]
 
     def key_cb(keycode):
         if keycode in (83, 115):                     # 's' / 'S' -> speed mode
@@ -366,6 +385,10 @@ def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0):
             state["mode"] = "direction"
             print("Mode: WIND DIRECTION (Up/Down arrows, 0-360 deg)")
             return
+        if keycode in (84, 116):                       # 't' / 'T' -> temperature mode
+            state["mode"] = "temperature"
+            print("Mode: TEMPERATURE (Up/Down arrows, deg C) -- changes air density (rho)")
+            return
         if keycode in (82, 114):                       # 'r' / 'R' -> reset
             mujoco.mj_resetData(model, data)
             if hasattr(driver, "reset_energy"):
@@ -374,14 +397,24 @@ def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0):
         if keycode == 265:                             # Up arrow
             if state["mode"] == "speed":
                 state["speed"] += SPEED_STEP
-            else:
+            elif state["mode"] == "direction":
                 state["direction"] = (state["direction"] + DIR_STEP) % 360.0
+            else:
+                state["temp_c"] += TEMP_STEP
         elif keycode == 264:                           # Down arrow
             if state["mode"] == "speed":
                 state["speed"] = max(0.0, state["speed"] - SPEED_STEP)
-            else:
+            elif state["mode"] == "direction":
                 state["direction"] = (state["direction"] - DIR_STEP) % 360.0
+            else:
+                state["temp_c"] -= TEMP_STEP
         else:
+            return
+        if state["mode"] == "temperature":
+            driver.rho = formulas.rho_for_temperature(state["temp_c"])
+            driver.temp_c = state["temp_c"]
+            print(f"  temperature = {state['temp_c']:.1f} degC   "
+                  f"-> rho = {driver.rho:.4f} kg/m^3")
             return
         write_wind_state(state["speed"], state["direction"])  # tell the semantic world
         if state["mode"] == "speed":
@@ -412,6 +445,7 @@ def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0):
                 extra = f"   total={getattr(driver,'last_total_power',0)/1e6:.2f}MW" \
                         f"  E={getattr(driver,'total_energy_wh',0)/1000:.3f}kWh"
                 print(f"wind FROM {state['direction']:5.1f} deg @ {state['speed']:4.1f} m/s   "
+                      f"T={state['temp_c']:4.1f}degC (rho={driver.rho:.3f})   "
                       f"spinning {spinning}/{len(rpms)}{extra}")
                 print_t = now
             dt = model.opt.timestep - (time.time() - step_start)
@@ -444,20 +478,29 @@ def main():
                     help="max RPM change per second (rotor inertia): how fast the blades "
                          "speed up or slow down toward the wind-driven target (default 1.0)")
     ap.add_argument("--publish", action="store_true", help="publish rpm/power/energy to ROS 2 topics")
+    ap.add_argument("--temp", type=float, default=DEFAULT_TEMP_C,
+                    help="initial air temperature in deg C (default 15, -> rho=1.225 kg/m^3). "
+                         "Sets rho via the ideal gas law. Change live in the viewer: "
+                         "press 't' then Up/Down arrows.")
     args = ap.parse_args()
 
     model = mujoco.MjModel.from_xml_path(args.model)
     data = mujoco.MjData(model)
     mujoco.mj_forward(model, data)
 
+    initial_rho = formulas.rho_for_temperature(args.temp)
+
     if args.aero:
         driver = Aerodynamics(model)
+        driver.rho = initial_rho
+        driver.temp_c = args.temp
         print(f"AERO model: {len(driver.blades)} blades on {len(driver.rotors)} rotors.")
     else:
         facing = not (args.axial or args.all_spin)
         driver = QueryDriver(model, axial=args.axial, tsr=args.tsr,
-                             needed_mw=args.needed, rho=RHO, c_p=args.cp, facing=facing,
+                             needed_mw=args.needed, rho=initial_rho, c_p=args.cp, facing=facing,
                              yaw_rate_deg=args.yaw_rate, rotor_accel_rpm_s=args.rotor_accel)
+        driver.temp_c = args.temp
         mode = (f"wind FROM {args.direction:.1f} deg, facing-gated" if facing
                 else "axial wind" if args.axial else "scalar wind (all spin)")
         print(f"QUERY model ({mode}, TSR={args.tsr:g}):")
@@ -486,7 +529,7 @@ def main():
         if args.headless is not None:
             run_headless(model, data, driver, args.headless, args.wind, publisher, args.direction)
         else:
-            run_viewer(model, data, driver, args.wind, publisher, args.direction)
+            run_viewer(model, data, driver, args.wind, publisher, args.direction, args.temp)
     finally:
         if publisher:
             publisher.shutdown()
