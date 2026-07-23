@@ -61,6 +61,28 @@ def rpm_for_wind(wind_speed: float, blade_length: float, tsr: float = TSR) -> fl
     return (60 * wind_speed * tsr) / (np.pi * 2 * blade_length)
 
 
+# ---- power coefficient ---------------------------------------------- #
+BETZ_LIMIT = 16.0 / 27.0   # ~0.5926, the physical maximum any turbine's cp can reach
+
+
+def cp_for_wind(wind_speed: float) -> float:
+    """Power coefficient cp(v) from a 6th-order polynomial fit to measured data.
+
+        cp(v) = 2.181e-6 v^6 - 9.334e-5 v^5 + 1.278e-3 v^4 - 2.108e-3 v^3
+                - 9.360e-2 v^2 + 0.7076 v - 1.0154
+
+    This matches a realistic cp curve (rises to a peak around v=5 m/s, then
+    tapers off) roughly over v in [2, 15] m/s, the range it was fit to. Outside
+    that -- especially above ~18 m/s -- the raw polynomial diverges wildly
+    (it reaches cp > 100 by 28 m/s), which is physically impossible: cp can
+    never exceed the Betz limit (~0.593) or go negative. Both are clamped here.
+    """
+    v_1 = abs(wind_speed)
+    cp = (2.181e-6 * v_1**6 - 9.334e-5 * v_1**5 + 1.278e-3 * v_1**4 - 2.108e-3 * v_1**3
+          - 9.360e-2 * v_1**2 + 0.7076 * v_1 - 1.0154)
+    return float(np.clip(cp, 0.0, BETZ_LIMIT))
+    #return 0.45  # for testing, always return a fixed value
+
 # ---- power -------------------------------------------------------- #
 def real_efficiency(c_p: float = C_P, k_m: float = 0.015, k_e: float = 0.0125,
                     k_et: float = 0.065, k_t: float = 0.025, k_w: float = 0.0) -> float:
@@ -74,6 +96,13 @@ def wind_power_for_length(rho: float, wind_speed: float, blade_length: float) ->
 
 
 def generated_power_for_length(rho: float, wind_speed: float, blade_length: float,
-                               c_p: float = C_P) -> float:
-    """Generated electrical power [W] for one turbine."""
-    return real_efficiency(c_p) * wind_power_for_length(rho, wind_speed, blade_length)
+                               c_p: float = None) -> float:
+    """Generated electrical power [W] for one turbine.
+
+    By default cp is taken from cp_for_wind(wind_speed) -- the polynomial fit --
+    so power correctly follows the measured cp curve instead of using one fixed
+    coefficient for every wind speed. Pass c_p explicitly to override with a
+    fixed coefficient instead (e.g. for quick back-of-envelope estimates).
+    """
+    cp = cp_for_wind(wind_speed) if c_p is None else c_p
+    return real_efficiency(cp) * wind_power_for_length(rho, wind_speed, blade_length)

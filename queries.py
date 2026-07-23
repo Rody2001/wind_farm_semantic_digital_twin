@@ -33,9 +33,57 @@ def turbine_status(driver, name: str = None) -> dict:
     return driver.status(name)
 
 
+def fastest_turbine(driver) -> (str, float):
+    """Name and RPM of the turbine with the fastest rotor speed."""
+    return (max(driver.turbines.values(), key=lambda t: t.current_rpm).name, max(driver.turbines.values(), key=lambda t: t.current_rpm).current_rpm)
+
+
+def slowest_turbine(driver) -> (str, float):
+    """Name and RPM of the turbine with the slowest rotor speed."""
+    return (min(driver.turbines.values(), key=lambda t: t.current_rpm).name, min(driver.turbines.values(), key=lambda t: t.current_rpm).current_rpm)
+
+def slowest_moving_turbine(driver) -> (str, float):
+    """Name and RPM of the moving turbine with the slowest rotor speed."""
+    moving = [t for t in driver.turbines.values() if abs(t.current_rpm) > 1e-9]
+    if not moving:
+        return (None, 0.0)
+    turbine = min(moving, key=lambda t: abs(t.current_rpm))
+    return (turbine.name, turbine.current_rpm)
+
+def most_powerful_turbine(driver) -> (str, float):
+    """Name and generated power [W] of the turbine producing the most."""
+    generating = [t for t in driver.turbines.values() if t.current_power > 0]
+    if not generating:
+        return (None, 0.0)
+    turbine = max(generating, key=lambda t: t.current_power)
+    return (turbine.name, turbine.current_power)
+
+def least_powerful_turbine(driver) -> (str, float):
+    """Name and generated power [W] of the turbine producing the least."""
+    return (min(driver.turbines.values(), key=lambda t: t.current_power).name, min(driver.turbines.values(), key=lambda t: t.current_power).current_power)
+
+def least_powerful_moving_turbine(driver) -> (str, float):
+    """Name and generated power [W] of the moving turbine producing the least."""
+    moving = [t for t in driver.turbines.values() if abs(t.current_rpm) > 1e-9]
+    if not moving:
+        return (None, 0.0)
+    turbine = min(moving, key=lambda t: abs(t.current_power))
+    return (turbine.name, turbine.current_power)
+
+
 world, driver = main()
 time.sleep(5)   # let the 20 Hz timer step the driver and ramp RPM up
-print(turbine_status(driver, "Farm_East_1"))
-print(turbine_status(driver, "Farm_North_1"))
-print(turbine_status(driver, "Farm_West_1"))
-print(turbine_status(driver, "Farm_South_1"))
+# print(turbine_status(driver, "Farm_East_1"))
+# print(is_turbine_spinning(driver, "Farm_East_1"))
+# print(turbine_rpm(driver, "Farm_East_1"))
+# print(turbine_nacelle_yaw_deg(driver, "Farm_East_1"))
+print(fastest_turbine(driver))
+print(slowest_turbine(driver))
+print(slowest_moving_turbine(driver))
+print("---------------------------------------------")
+print(most_powerful_turbine(driver))
+print(least_powerful_turbine(driver))
+print(least_powerful_moving_turbine(driver))
+print("---------------------------------------------")
+#print(vars(next(iter(driver.turbines.values()))))
+# print(driver.turbines.values())

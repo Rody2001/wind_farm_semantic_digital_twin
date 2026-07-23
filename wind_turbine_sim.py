@@ -12,13 +12,15 @@ Topics (std_msgs/Float64), one per turbine plus farm totals:
     /wind_farm/<turbine>/rpm
     /wind_farm/<turbine>/power_w      generated power now (0 if idle)
     /wind_farm/<turbine>/energy_kwh   cumulative since start
+    /wind_farm/<turbine>/cp           power coefficient cp(v) for that turbine's current wind (0 if idle)
     /wind_farm/total_power_w
     /wind_farm/total_energy_kwh
     /wind_farm/temperature_c          current air temperature (deg C)
     /wind_farm/rho                    current air density (kg/m^3), from temperature_c
 
 Other options:
-    --wind 8 --tsr 6 --cp 0.45 --axial --aero --headless N
+    --wind 8 --tsr 6 --axial --aero --headless N
+    --cp 0.45         optional: override the polynomial cp(v) curve with a fixed value
     --yaw-rate 10     nacelle yaw slew speed in deg/s (default 10) while it turns to face the wind
     --rotor-accel 1.0 max RPM/s the blades can speed up or slow down (default 1.0) -- rotor
                       inertia, so wind gusts/lulls cause a gradual ramp, not an instant jump
@@ -61,7 +63,7 @@ class QueryDriver:
     Tracks generated power and accumulated energy for publishing."""
 
     def __init__(self, model: mujoco.MjModel, axial: bool = False, tsr: float = formulas.TSR,
-                 needed_mw: float = None, rho: float = formulas.RHO, c_p: float = formulas.C_P,
+                 needed_mw: float = None, rho: float = formulas.RHO, c_p: float = None,
                  facing: bool = False, yaw_rate_deg: float = 10.0, rotor_accel_rpm_s: float = 1.0):
         self.model = model
         self.axial = axial
@@ -105,7 +107,7 @@ class QueryDriver:
         self.energy_wh = {n: 0.0 for n in self.names}    # cumulative per turbine
         self.total_energy_wh = 0.0
         self.rotor_rpm = {k: 0.0 for k in range(len(self.rotors))}   # actual (ramped) RPM per rotor
-        self.last_readings = {}                          # name -> (rpm, power_w, energy_wh, active)
+        self.last_readings = {}                          # name -> (rpm, power_w, energy_wh, active, cp)
         self.last_total_power = 0.0
 
     def _blade_length(self, hub_body_id):
@@ -166,14 +168,15 @@ class QueryDriver:
         for k, (name, body_id, _, _, axis_local, D) in enumerate(self.rotors):
             v = self._rotor_wind(data, body_id, axis_local, wind_vec)
             rpm = formulas.rpm_for_wind(v, D, self.tsr)
+            cp = formulas.cp_for_wind(v) if self.c_p is None else self.c_p
             power = formulas.generated_power_for_length(self.rho, v, D, self.c_p) if rpm != 0 else 0.0
-            rows.append((k, rpm, power))
+            rows.append((k, rpm, power, cp))
 
         if self.needed_w is None:
-            return {k for k, rpm, _ in rows if rpm != 0}, rows
+            return {k for k, rpm, _, _ in rows if rpm != 0}, rows
 
         active, cum = set(), 0.0
-        for k, rpm, power in sorted(rows, key=lambda r: (-r[2], self.rotors[r[0]][0])):
+        for k, rpm, power, cp in sorted(rows, key=lambda r: (-r[2], self.rotors[r[0]][0])):
             if cum >= self.needed_w:
                 break
             if power <= 0:
@@ -187,7 +190,7 @@ class QueryDriver:
         active, rows = self._active_set(data, wind_vec)
         total_power = 0.0
         max_rpm_step = self.rotor_accel_rpm_s * dt
-        for k, target_rpm, target_power in rows:
+        for k, target_rpm, target_power, target_cp in rows:
             name, body_id, qpadr, dadr, axis_local, D = self.rotors[k]
             is_on = k in active
             target_rpm_eff = target_rpm if is_on else 0.0   # idle/off rotors coast down to 0
@@ -204,8 +207,9 @@ class QueryDriver:
             # power builds up with RPM instead of jumping straight to the target
             ramp_frac = 0.0 if target_rpm_eff <= 1e-9 else min(1.0, current_rpm / target_rpm_eff)
             gen = target_power * ramp_frac if is_on else 0.0
+            cp_now = target_cp if is_on else 0.0
             self.energy_wh[name] += gen * dt / 3600.0
-            self.last_readings[name] = (current_rpm, gen, self.energy_wh[name], is_on)
+            self.last_readings[name] = (current_rpm, gen, self.energy_wh[name], is_on, cp_now)
             total_power += gen
         self.total_energy_wh += total_power * dt / 3600.0
         self.last_total_power = total_power
@@ -223,9 +227,9 @@ class QueryDriver:
 
     def preview(self, data, wind_vec):
         active, rows = self._active_set(data, wind_vec)
-        used = sum(p for k, _, p in rows if k in active)
-        total = sum(p for _, _, p in rows)
-        names_on = [self.rotors[k][0] for k, _, _ in rows if k in active]
+        used = sum(p for k, _, p, _ in rows if k in active)
+        total = sum(p for _, _, p, _ in rows)
+        names_on = [self.rotors[k][0] for k, _, _, _ in rows if k in active]
         return active, used, total, names_on
 
 
@@ -298,12 +302,13 @@ class RosPublisher:
         if not rclpy.ok():
             rclpy.init()
         self.node = rclpy.create_node("wind_turbine_sim")
-        self.rpm_pubs, self.power_pubs, self.energy_pubs = {}, {}, {}
+        self.rpm_pubs, self.power_pubs, self.energy_pubs, self.cp_pubs = {}, {}, {}, {}
         for n in rotor_names:
             base = n[:-6] if n.endswith("_rotor") else n     # strip "_rotor"
             self.rpm_pubs[n]    = self.node.create_publisher(Float64, f"/wind_farm/{base}/rpm", 10)
             self.power_pubs[n]  = self.node.create_publisher(Float64, f"/wind_farm/{base}/power_w", 10)
             self.energy_pubs[n] = self.node.create_publisher(Float64, f"/wind_farm/{base}/energy_kwh", 10)
+            self.cp_pubs[n]     = self.node.create_publisher(Float64, f"/wind_farm/{base}/cp", 10)
         self.total_power_pub  = self.node.create_publisher(Float64, "/wind_farm/total_power_w", 10)
         self.total_energy_pub = self.node.create_publisher(Float64, "/wind_farm/total_energy_kwh", 10)
         self.temperature_pub  = self.node.create_publisher(Float64, "/wind_farm/temperature_c", 10)
@@ -311,10 +316,11 @@ class RosPublisher:
 
     def publish(self, driver):
         F = self._Float64
-        for name, (rpm, power, energy_wh, _active) in driver.last_readings.items():
+        for name, (rpm, power, energy_wh, _active, cp) in driver.last_readings.items():
             self.rpm_pubs[name].publish(F(data=float(rpm)))
             self.power_pubs[name].publish(F(data=float(power)))
             self.energy_pubs[name].publish(F(data=float(energy_wh / 1000.0)))
+            self.cp_pubs[name].publish(F(data=float(cp)))
         self.total_power_pub.publish(F(data=float(driver.last_total_power)))
         self.total_energy_pub.publish(F(data=float(driver.total_energy_wh / 1000.0)))
         temp_c = getattr(driver, "temp_c", None)
@@ -471,7 +477,9 @@ def main():
     ap.add_argument("--tsr", type=float, default=formulas.TSR, help="tip-speed ratio (default 6)")
     ap.add_argument("--needed", type=float, default=None,
                     help="required power output in MW; only enough turbines spin to meet it")
-    ap.add_argument("--cp", type=float, default=formulas.C_P, help="power coefficient c_p (default 0.45)")
+    ap.add_argument("--cp", type=float, default=None,
+                    help="override cp with a fixed value; default is to use the "
+                         "polynomial cp(v) fit (recommended, updates live with wind speed)")
     ap.add_argument("--yaw-rate", type=float, default=10.0,
                     help="nacelle yaw slew rate in deg/s while tracking the wind (default 10)")
     ap.add_argument("--rotor-accel", type=float, default=1.0,

@@ -63,6 +63,8 @@ class TurbineRuntime:
     blade_length: float
     base_yaw_rad: float                 # fixed world yaw of the tower (farm layout orientation)
     current_rpm: float = 0.0
+    current_power: float = 0.0  # W, mirrors the published power_w
+    current_energy_kwh: float = 0.0  # kWh, cumulative
 
 
 def _wrap_to_pi(angle: float) -> float:
@@ -170,12 +172,17 @@ class SemanticWindDriver:
                 if published is not None and published.rpm_seen:
                     # Ground truth from MuJoCo -- mirror it exactly, don't recompute.
                     t.current_rpm = published.rpm
+                    t.current_power = published.power_w
+                    t.current_energy_kwh = published.energy_kwh
                 else:
                     # No ROS data yet (e.g. --publish isn't running): fall back to our
                     # own wind-driven ramp so queries aren't stuck at a meaningless 0.
                     target_rpm = formulas.rpm_for_wind(effective_wind, t.blade_length, self.tsr)
                     rpm_step = float(np.clip(target_rpm - t.current_rpm, -max_rpm_step, max_rpm_step))
                     t.current_rpm += rpm_step
+                    t.current_power = (0.0 if abs(t.current_rpm) < 1e-9 else
+                                       formulas.generated_power_for_length(
+                                           formulas.RHO, effective_wind, t.blade_length))
 
                 omega = t.current_rpm * 2.0 * np.pi / 60.0
                 hub_dof_id = t.hub_conn.raw_dof.id
