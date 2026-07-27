@@ -39,6 +39,8 @@ equivalent of calling mj_forward() once at the end of QueryDriver.advance().
 
 from __future__ import annotations
 
+import copy
+from datetime import datetime
 from dataclasses import dataclass
 from typing import Dict, Tuple
 
@@ -46,6 +48,7 @@ import numpy as np
 
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import RevoluteConnection
+from peak_state_file import read_peak_state, write_peak_state
 
 import turbine_formulas as formulas
 from wind_state_file import read_wind_state  # optional: follow wind from the MuJoCo viewer
@@ -63,8 +66,8 @@ class TurbineRuntime:
     blade_length: float
     base_yaw_rad: float                 # fixed world yaw of the tower (farm layout orientation)
     current_rpm: float = 0.0
-    current_power: float = 0.0  # W, mirrors the published power_w
-    current_energy_kwh: float = 0.0  # kWh, cumulative
+    current_power: float = 0.0          # W, mirrors the published power_w
+    current_energy_kwh: float = 0.0     # kWh, cumulative
 
 
 def _wrap_to_pi(angle: float) -> float:
@@ -87,7 +90,7 @@ class SemanticWindDriver:
     def __init__(self, world: World, turbines: Dict[str, TurbineRuntime],
                  tsr: float = formulas.TSR, yaw_rate_deg: float = 10.0,
                  rotor_accel_rpm_s: float = 1.0, follow_wind_file: str = None,
-                 ros_subscriber=None):
+                 ros_subscriber=None, peak_file: str = "peak_state.json"):
         self.world = world
         self.turbines = turbines
         self.tsr = tsr
@@ -110,6 +113,14 @@ class SemanticWindDriver:
         # actually arrives for a turbine (e.g. before --publish is running), so queries
         # aren't stuck at a meaningless 0 in the meantime.
         self.ros_subscriber = ros_subscriber
+
+        # ---- peak tracking (persisted across process restarts) ----
+        self.elapsed = 0.0                  # sim time accumulated across step() calls
+        self.peak_file = peak_file
+        stored = read_peak_state(peak_file) if peak_file else None
+        self.peak_status = stored
+        self.peak_power_w = stored["total_power_w"] if stored else 0.0
+
 
     def set_wind(self, speed: float, direction_deg: float) -> None:
         """Set the live wind speed [m/s] and direction [deg, compass bearing wind is FROM].
@@ -193,10 +204,28 @@ class SemanticWindDriver:
 
         self.world.notify_state_change()   # one recompute for the whole farm, like mj_forward()
 
+        self.elapsed += dt
+        total = self.total_power_w()
+
+        # ---- peak: only when a NEW maximum is reached ----
+        if total > self.peak_power_w:
+            self.peak_power_w = total
+            snapshot = copy.deepcopy(self.status())
+            snapshot["time_s"] = self.elapsed
+            snapshot["timestamp"] = datetime.now().isoformat(timespec="seconds")
+            snapshot["total_power_w"] = total
+            self.peak_status = snapshot
+            if self.peak_file:
+                write_peak_state(snapshot, self.peak_file)
+
     # ---- queries ---------------------------------------------------------- #
     def is_spinning(self, name: str, eps: float = 0.05) -> bool:
         """True if turbine `name`'s rotor RPM is above a negligible threshold."""
         return abs(self.turbines[name].current_rpm) > eps
+
+    def total_power_w(self) -> float:
+        """Total generated power [W] across the whole farm right now."""
+        return sum(t.current_power for t in self.turbines.values())
 
     def rpm(self, name: str) -> float:
         """Current (ramped) RPM of turbine `name`."""
@@ -206,29 +235,33 @@ class SemanticWindDriver:
         """Current nacelle yaw angle (local, relative to the tower) in degrees."""
         return float(np.degrees(self.turbines[name].nacelle_conn.position))
 
+    def reset_peak(self) -> None:
+        """Forget the recorded peak (e.g. when starting a new experiment)."""
+        self.peak_power_w = 0.0
+        self.peak_status = None
+
     def status(self, name: str = None) -> Dict:
         """Snapshot of one turbine's (or every turbine's) live state -- the query.
 
-        When a ros_subscriber is attached, rpm/power_w/energy_kwh here are exactly
-        what wind_turbine_sim.py published for that turbine (see step() -- rpm is
-        mirrored, not recomputed), plus the two farm-wide totals it also publishes.
+        rpm/power_w/energy_kwh come from TurbineRuntime, which step() fills either
+        from the published ROS values (ground truth from wind_turbine_sim.py) or
+        from the local wind-driven fallback. Reading the stored fields instead of
+        the subscriber avoids an AttributeError for turbines that have not
+        published yet (subscriber.get(name) returns None in that case).
         """
         speed, direction_deg = self.wind_speed, self.wind_direction_deg
         if name is not None:
             t = self.turbines[name]
-            result = {
+            return {
                 "name": name,
                 "rpm": t.current_rpm,
                 "spinning": self.is_spinning(name),
                 "nacelle_yaw_deg": self.nacelle_yaw_deg(name),
                 "wind_speed": speed,
                 "wind_direction_deg": direction_deg,
+                "power_w": t.current_power,
+                "energy_kwh": t.current_energy_kwh,
             }
-            if self.ros_subscriber is not None:
-                published = self.ros_subscriber.get(name)
-                result["power_w"] = published.power_w
-                result["energy_kwh"] = published.energy_kwh
-            return result
         result = {
             "wind_speed": speed,
             "wind_direction_deg": direction_deg,

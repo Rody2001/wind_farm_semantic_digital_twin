@@ -17,7 +17,7 @@ No framework imports (numpy only).
 
 import numpy as np
 
-TSR = 6.0          # tip-speed ratio (blade-tip speed / wind speed)
+TSR = 4.19          # tip-speed ratio (blade-tip speed / wind speed)
 RHO = 1.225        # air density [kg/m^3] -- standard conditions, see rho_for_temperature(15.0)
 C_P = 0.45         # power coefficient (before drivetrain/other losses)
 

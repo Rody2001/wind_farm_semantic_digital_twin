@@ -18,6 +18,11 @@ Topics (std_msgs/Float64), one per turbine plus farm totals:
     /wind_farm/temperature_c          current air temperature (deg C)
     /wind_farm/rho                    current air density (kg/m^3), from temperature_c
 
+Timed run + history logging:
+    --time 100         run 100 s then close automatically, logging history at 1 Hz
+    --history-file PATH where to write the 1 Hz log (default history.jsonl); the queries
+                        in history_queries.py read it back (spinning_intervals, ...)
+
 Other options:
     --wind 8 --tsr 6 --axial --aero --headless N
     --cp 0.45         optional: override the polynomial cp(v) curve with a fixed value
@@ -40,11 +45,18 @@ of snapping there instantly.
 
 import argparse
 import time
+from datetime import datetime
 import numpy as np
 import mujoco
 
 import turbine_formulas as formulas  # pure cut-in + RPM + power formulas (no framework)
 from wind_state_file import write_wind_state  # shares live wind with main1.py's semantic world
+
+try:
+    from history_file import append_sample, clear_history   # optional 1 Hz history logging
+    _HISTORY_OK = True
+except Exception:  # noqa: BLE001
+    _HISTORY_OK = False
 
 RHO = formulas.RHO   # air density [kg/m^3]
 CD  = 1.28           # flat-plate drag coeff  (aero mode only)
@@ -347,23 +359,56 @@ def make_wind(speed, heading_deg=0.0):
 wind_from_bearing = formulas.wind_from_bearing
 
 
+def _write_history(driver, path, elapsed, wind_speed, direction_deg):
+    """Append one history sample in the schema history_queries.py expects.
+
+    Turbine names are stripped of the trailing '_rotor' so the file uses the
+    same names as the semantic side ('Farm_East_tall', not '..._rotor').
+    """
+    if not path or not hasattr(driver, "last_readings"):
+        return
+    def base(n):
+        return n[:-6] if n.endswith("_rotor") else n
+    sample = {
+        "time_s": float(elapsed),
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "wind_speed": float(wind_speed),
+        "wind_direction_deg": float(direction_deg),
+        "total_power_w": float(getattr(driver, "last_total_power", 0.0)),
+        "rpm": {base(n): r[0] for n, r in driver.last_readings.items()},
+        "power_w": {base(n): r[1] for n, r in driver.last_readings.items()},
+    }
+    try:
+        append_sample(sample, path)
+    except Exception as exc:   # noqa: BLE001
+        print(f"[history] write failed: {exc!r}")
+
+
 # --------------------------------------------------------------------------- #
-def run_headless(model, data, driver, seconds, wind_speed, publisher=None, direction=0.0):
+def run_headless(model, data, driver, seconds, wind_speed, publisher=None, direction=0.0,
+                 history_path=None):
     steps = int(seconds / model.opt.timestep)
     pub_every = max(1, int(0.1 / model.opt.timestep))    # ~10 Hz
+    hist_every = max(1, int(1.0 / model.opt.timestep))   # 1 Hz
     wind = wind_from_bearing(wind_speed, direction)
     write_wind_state(wind_speed, direction)   # let the semantic world see this run's wind too
     print(f"Headless: {seconds}s @ {wind_speed} m/s (wind FROM {direction:.1f} deg)\n")
+    hist_n = 0
     for i in range(steps):
         driver.advance(data, wind, model.opt.timestep)
         if publisher and i % pub_every == 0:
             publisher.publish(driver)
+        if history_path and i % hist_every == 0:
+            _write_history(driver, history_path, data.time, wind_speed, direction)
+            hist_n += 1
         if i % int(0.5 / model.opt.timestep) == 0:
             rpms = driver.rpm(data)
             txt = "  ".join(f"{k}={v:7.1f}rpm" for k, v in rpms.items())
             extra = f"   total={getattr(driver,'last_total_power',0)/1e6:6.2f}MW" \
                     f"  E={getattr(driver,'total_energy_wh',0)/1000:7.3f}kWh"
             print(f"t={data.time:5.2f}s   {txt}{extra}")
+    if history_path:
+        print(f"Recorded {hist_n} history samples to {history_path}")
     return driver.rpm(data)
 
 
@@ -373,7 +418,8 @@ TEMP_STEP = 1.0      # deg C per arrow press
 DEFAULT_TEMP_C = 15.0   # matches RHO = 1.225 kg/m^3 (ENERCON's "Standardluftdichte")
 
 
-def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0, temp_c=DEFAULT_TEMP_C):
+def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0, temp_c=DEFAULT_TEMP_C,
+               run_seconds=None, history_path=None):
     import mujoco.viewer
     # mode: "speed"/"direction"/"temperature" -> which quantity the arrow keys control
     state = {"speed": wind_speed, "direction": direction % 360.0, "mode": "speed",
@@ -436,27 +482,42 @@ def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0, t
         v.cam.distance = 1.4 * model.stat.extent
         v.cam.elevation = -12
         v.cam.azimuth = 120
-        print_t = pub_t = time.time()
+        start = time.time()
+        print_t = pub_t = start
+        hist_t = start - 1.0        # so the first sample is written right away
+        hist_n = 0
         while v.is_running():
             step_start = time.time()
             driver.advance(data, current_wind(), model.opt.timestep)
             v.sync()
             now = time.time()
+            elapsed = now - start
             if publisher and now - pub_t > 0.1:             # ~10 Hz
                 publisher.publish(driver)
                 pub_t = now
+            if history_path and now - hist_t >= 1.0:        # 1 Hz history log
+                _write_history(driver, history_path, elapsed, state["speed"], state["direction"])
+                hist_n += 1
+                hist_t = now
             if now - print_t > 1.0:
                 rpms = driver.rpm(data)
                 spinning = sum(1 for vv in rpms.values() if abs(vv) > 1e-6)
                 extra = f"   total={getattr(driver,'last_total_power',0)/1e6:.2f}MW" \
                         f"  E={getattr(driver,'total_energy_wh',0)/1000:.3f}kWh"
+                left = f"  ({run_seconds - elapsed:4.0f}s left)" if run_seconds else ""
                 print(f"wind FROM {state['direction']:5.1f} deg @ {state['speed']:4.1f} m/s   "
                       f"T={state['temp_c']:4.1f}degC (rho={driver.rho:.3f})   "
-                      f"spinning {spinning}/{len(rpms)}{extra}")
+                      f"spinning {spinning}/{len(rpms)}{extra}{left}")
                 print_t = now
+            if run_seconds is not None and elapsed >= run_seconds:
+                print(f"\nReached --time {run_seconds:g}s, closing.")
+                break
             dt = model.opt.timestep - (time.time() - step_start)
             if dt > 0:
                 time.sleep(dt)
+
+    if history_path:
+        print(f"Recorded {hist_n} history samples to {history_path}")
 
 
 def main():
@@ -490,6 +551,10 @@ def main():
                     help="initial air temperature in deg C (default 15, -> rho=1.225 kg/m^3). "
                          "Sets rho via the ideal gas law. Change live in the viewer: "
                          "press 't' then Up/Down arrows.")
+    ap.add_argument("--time", type=float, default=None,
+                    help="run for N seconds then close automatically, logging history at 1 Hz")
+    ap.add_argument("--history-file", default="history.jsonl",
+                    help="path for the 1 Hz history log (used with --time)")
     args = ap.parse_args()
 
     model = mujoco.MjModel.from_xml_path(args.model)
@@ -533,11 +598,22 @@ def main():
         except Exception as e:  # noqa: BLE001
             print(f"\n[publish disabled] could not start ROS 2 publisher: {e}")
 
+    history_path = None
+    if args.time is not None:
+        if _HISTORY_OK:
+            history_path = args.history_file
+            clear_history(history_path)       # fresh file for this run
+            print(f"Recording history at 1 Hz to {history_path} for {args.time:g}s")
+        else:
+            print("[history disabled] history_file.py not importable; running without a log")
+
     try:
         if args.headless is not None:
-            run_headless(model, data, driver, args.headless, args.wind, publisher, args.direction)
+            run_headless(model, data, driver, args.headless, args.wind, publisher,
+                         args.direction, history_path)
         else:
-            run_viewer(model, data, driver, args.wind, publisher, args.direction, args.temp)
+            run_viewer(model, data, driver, args.wind, publisher, args.direction, args.temp,
+                       run_seconds=args.time, history_path=history_path)
     finally:
         if publisher:
             publisher.shutdown()
