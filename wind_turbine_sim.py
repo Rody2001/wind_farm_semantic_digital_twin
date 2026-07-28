@@ -58,6 +58,8 @@ try:
 except Exception:  # noqa: BLE001
     _HISTORY_OK = False
 
+from control_server import EnvironmentState, start_control_server
+
 RHO = formulas.RHO   # air density [kg/m^3]
 CD  = 1.28           # flat-plate drag coeff  (aero mode only)
 
@@ -75,7 +77,7 @@ class QueryDriver:
     Tracks generated power and accumulated energy for publishing."""
 
     def __init__(self, model: mujoco.MjModel, axial: bool = False, tsr: float = formulas.TSR,
-                 needed_mw: float = None, rho: float = formulas.RHO, c_p: float = None,
+                 grid_limit_mw: float = None, rho: float = formulas.RHO, c_p: float = None,
                  facing: bool = False, yaw_rate_deg: float = 10.0, rotor_accel_rpm_s: float = 1.0):
         self.model = model
         self.axial = axial
@@ -86,7 +88,8 @@ class QueryDriver:
         self.c_p = c_p
         self.yaw_rate_deg = yaw_rate_deg   # nacelle slew speed while tracking the wind
         self.rotor_accel_rpm_s = rotor_accel_rpm_s   # max RPM change per second (rotor inertia)
-        self.needed_w = None if needed_mw is None else needed_mw * 1e6
+        # grid upper limit [W]; None -> no cap, every eligible turbine runs
+        self.grid_limit_w = None if grid_limit_mw is None else grid_limit_mw * 1e6
         self.rotors = []            # (name, body_id, qpos_adr, dof_adr, axis_local, D)
         self.yaws = []               # (name, qpos_adr, dof_adr, base_yaw_rad)
 
@@ -184,17 +187,19 @@ class QueryDriver:
             power = formulas.generated_power_for_length(self.rho, v, D, self.c_p) if rpm != 0 else 0.0
             rows.append((k, rpm, power, cp))
 
-        if self.needed_w is None:
+        if self.grid_limit_w is None:
             return {k for k, rpm, _, _ in rows if rpm != 0}, rows
 
+        # Grid cap: run as many turbines as fit WITHOUT the total generated
+        # power exceeding the limit (largest first, skip any that would push over).
         active, cum = set(), 0.0
         for k, rpm, power, cp in sorted(rows, key=lambda r: (-r[2], self.rotors[r[0]][0])):
-            if cum >= self.needed_w:
-                break
             if power <= 0:
                 continue
-            active.add(k)
-            cum += power
+            if cum + power <= self.grid_limit_w:
+                active.add(k)
+                cum += power
+            # else skip: adding this turbine would exceed the grid limit
         return active, rows
 
     def advance(self, data: mujoco.MjData, wind_vec: np.ndarray, dt: float):
@@ -325,6 +330,7 @@ class RosPublisher:
         self.total_energy_pub = self.node.create_publisher(Float64, "/wind_farm/total_energy_kwh", 10)
         self.temperature_pub  = self.node.create_publisher(Float64, "/wind_farm/temperature_c", 10)
         self.rho_pub          = self.node.create_publisher(Float64, "/wind_farm/rho", 10)
+        self.grid_limit_pub   = self.node.create_publisher(Float64, "/wind_farm/grid_limit_mw", 10)
 
     def publish(self, driver):
         F = self._Float64
@@ -342,6 +348,9 @@ class RosPublisher:
         if rho is not None:
             self.rho_pub.publish(F(data=float(rho)))
         self._rclpy.spin_once(self.node, timeout_sec=0.0)
+        grid_limit_mw = getattr(driver, "grid_limit_w", None)
+        if grid_limit_mw is not None:
+            self.grid_limit_pub.publish(F(data=float(grid_limit_mw)))
 
     def shutdown(self):
         self.node.destroy_node()
@@ -375,6 +384,7 @@ def _write_history(driver, path, elapsed, wind_speed, direction_deg):
         "wind_speed": float(wind_speed),
         "wind_direction_deg": float(direction_deg),
         "total_power_w": float(getattr(driver, "last_total_power", 0.0)),
+        "grid_limit_mw": float(driver.grid_limit_w / 1e6) if driver.grid_limit_w is not None else None,
         "rpm": {base(n): r[0] for n, r in driver.last_readings.items()},
         "power_w": {base(n): r[1] for n, r in driver.last_readings.items()},
     }
@@ -415,15 +425,21 @@ def run_headless(model, data, driver, seconds, wind_speed, publisher=None, direc
 SPEED_STEP = 1.0    # m/s per arrow press
 DIR_STEP = 5.0       # degrees per arrow press
 TEMP_STEP = 1.0      # deg C per arrow press
+GRIDLIMIT_STEP = 50.0  # MW per arrow press
+DEFAULT_GRIDLIMIT_MW = 500.0  # default grid limit in MW
 DEFAULT_TEMP_C = 15.0   # matches RHO = 1.225 kg/m^3 (ENERCON's "Standardluftdichte")
 
 
 def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0, temp_c=DEFAULT_TEMP_C,
                run_seconds=None, history_path=None):
     import mujoco.viewer
-    # mode: "speed"/"direction"/"temperature" -> which quantity the arrow keys control
+    # mode: "speed"/"direction"/"temperature"/"gridlimit" -> which quantity the arrow keys control
+    initial_gridlimit = driver.grid_limit_w / 1e6 if driver.grid_limit_w is not None else DEFAULT_GRIDLIMIT_MW
     state = {"speed": wind_speed, "direction": direction % 360.0, "mode": "speed",
-             "temp_c": temp_c}
+             "temp_c": temp_c, "gridlimit_mw": initial_gridlimit}
+    # Apply default grid limit if none was set
+    if driver.grid_limit_w is None:
+        driver.grid_limit_w = DEFAULT_GRIDLIMIT_MW * 1e6
     write_wind_state(state["speed"], state["direction"])  # publish initial wind immediately
     driver.rho = formulas.rho_for_temperature(state["temp_c"])
     driver.temp_c = state["temp_c"]
@@ -441,6 +457,11 @@ def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0, t
             state["mode"] = "temperature"
             print("Mode: TEMPERATURE (Up/Down arrows, deg C) -- changes air density (rho)")
             return
+        if keycode in (71, 103):                       # 'g' / 'G' -> gridlimit mode
+            state["mode"] = "gridlimit"
+            current = state["gridlimit_mw"]
+            print(f"Mode: GRID LIMIT (Up/Down arrows, +/- 50 MW) -- currently {current:.0f} MW")
+            return
         if keycode in (82, 114):                       # 'r' / 'R' -> reset
             mujoco.mj_resetData(model, data)
             if hasattr(driver, "reset_energy"):
@@ -451,15 +472,19 @@ def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0, t
                 state["speed"] += SPEED_STEP
             elif state["mode"] == "direction":
                 state["direction"] = (state["direction"] + DIR_STEP) % 360.0
-            else:
+            elif state["mode"] == "temperature":
                 state["temp_c"] += TEMP_STEP
+            elif state["mode"] == "gridlimit":
+                state["gridlimit_mw"] += GRIDLIMIT_STEP
         elif keycode == 264:                           # Down arrow
             if state["mode"] == "speed":
                 state["speed"] = max(0.0, state["speed"] - SPEED_STEP)
             elif state["mode"] == "direction":
                 state["direction"] = (state["direction"] - DIR_STEP) % 360.0
-            else:
+            elif state["mode"] == "temperature":
                 state["temp_c"] -= TEMP_STEP
+            elif state["mode"] == "gridlimit":
+                state["gridlimit_mw"] = max(0.0, state["gridlimit_mw"] - GRIDLIMIT_STEP)
         else:
             return
         if state["mode"] == "temperature":
@@ -467,6 +492,10 @@ def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0, t
             driver.temp_c = state["temp_c"]
             print(f"  temperature = {state['temp_c']:.1f} degC   "
                   f"-> rho = {driver.rho:.4f} kg/m^3")
+            return
+        if state["mode"] == "gridlimit":
+            driver.grid_limit_w = state["gridlimit_mw"] * 1e6
+            print(f"  grid limit = {state['gridlimit_mw']:.0f} MW")
             return
         write_wind_state(state["speed"], state["direction"])  # tell the semantic world
         if state["mode"] == "speed":
@@ -536,8 +565,9 @@ def main():
     ap.add_argument("--all-spin", action="store_true",
                     help="disable directional gating: every turbine spins regardless of facing")
     ap.add_argument("--tsr", type=float, default=formulas.TSR, help="tip-speed ratio (default 6)")
-    ap.add_argument("--needed", type=float, default=None,
-                    help="required power output in MW; only enough turbines spin to meet it")
+    ap.add_argument("--gridLimit", type=float, default=None,
+                    help="grid UPPER limit in MW; only run enough turbines so the total "
+                         "generated power stays under it (curtailment)")
     ap.add_argument("--cp", type=float, default=None,
                     help="override cp with a fixed value; default is to use the "
                          "polynomial cp(v) fit (recommended, updates live with wind speed)")
@@ -571,7 +601,7 @@ def main():
     else:
         facing = not (args.axial or args.all_spin)
         driver = QueryDriver(model, axial=args.axial, tsr=args.tsr,
-                             needed_mw=args.needed, rho=initial_rho, c_p=args.cp, facing=facing,
+                             grid_limit_mw=args.gridLimit, rho=initial_rho, c_p=args.cp, facing=facing,
                              yaw_rate_deg=args.yaw_rate, rotor_accel_rpm_s=args.rotor_accel)
         driver.temp_c = args.temp
         mode = (f"wind FROM {args.direction:.1f} deg, facing-gated" if facing
@@ -579,12 +609,12 @@ def main():
         print(f"QUERY model ({mode}, TSR={args.tsr:g}):")
         for name, D, vmin in driver.info():
             print(f"  {name}: blade D={D:.3f} m -> cut-in {vmin:.4f} m/s (1 RPM)")
-        if args.needed is not None:
+        if args.gridLimit is not None:
             preview_wind = wind_from_bearing(args.wind, args.direction)
             _, used, total, on = driver.preview(data, preview_wind)
-            print(f"\nDemand {args.needed:g} MW @ {args.wind:g} m/s: "
-                  f"starting {len(on)}/{len(driver.rotors)} turbines "
-                  f"({used/1e6:.3f} MW of {total/1e6:.3f} MW available)")
+            print(f"\nGrid limit {args.gridLimit:g} MW @ {args.wind:g} m/s: "
+                  f"running {len(on)}/{len(driver.rotors)} turbines "
+                  f"({used/1e6:.3f} MW used of {total/1e6:.3f} MW available)")
             running = set(on)
             for name, *_ in driver.rotors:
                 print(f"    {name:28s} {'RUN ' if name in running else 'idle'}")

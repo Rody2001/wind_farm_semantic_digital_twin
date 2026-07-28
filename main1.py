@@ -8,6 +8,8 @@ from time import sleep
 
 import numpy as np
 import rclpy
+
+from peak_state_file import clear_peak_state
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import VizMarkerPublisher
 
 from semantic_annotations import Tower, Nacelle, RotorBlades, Hub, TowerBase
@@ -31,6 +33,7 @@ from wind_state_file import DEFAULT_PATH as WIND_STATE_PATH
 from ros_turbine_subscriber import RosTurbineSubscriber
 
 
+clear_peak_state()
 @dataclass
 class WindTurbine(ActiveConnection1DOF, HasUpdateState):
     rotor_dof: DegreeOfFreedom = field(default=None, kw_only=True)
@@ -309,8 +312,7 @@ def main():
 
     return world, driver
 
-#main()
-#print(main().semantic_annotations)
+
 if __name__ == "__main__":
     world, driver = main()
     print("Running. Try, e.g. from another terminal or a debugger attached to this")

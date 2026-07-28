@@ -200,42 +200,24 @@ def wind_speed_for_power(target_mw: float, source=None, tol_frac: float = 0.05) 
 
 world, driver = main()
 time.sleep(5)   # let the 20 Hz timer step the driver and ramp RPM up
-# print(turbine_status(driver, "Farm_East_1"))
-# print(is_turbine_spinning(driver, "Farm_East_1"))
-# print(turbine_rpm(driver, "Farm_East_1"))
-# print(turbine_nacelle_yaw_deg(driver, "Farm_East_1"))
+# Live queries
+# print(is_turbine_spinning(driver, "Farm_East_tall"))
+# print(turbine_rpm(driver, "Farm_East_tall"))
+# print(turbine_nacelle_yaw_deg(driver, "Farm_East_tall"))
+# print(turbine_status(driver, "Farm_East_tall"))
+# print(turbine_status(driver))
 # print(fastest_turbine(driver))
 # print(slowest_turbine(driver))
 # print(slowest_moving_turbine(driver))
-# print("---------------------------------------------")
 # print(most_powerful_turbine(driver))
 # print(least_powerful_turbine(driver))
 # print(least_powerful_moving_turbine(driver))
-# print("---------------------------------------------")
+# print(peak_power_report(driver))
 # print(peak_power(driver))
 
 
-"""
-spinning_intervals("Farm_East_tall")   # [{'start_time','end_time','duration_s',...}]
-was_spinning_at("Farm_East_tall", 9.0) # True/False at a sim time
-highest_wind_speed()                      # ('2026-07-23T21:09:51', 18.0)
-wind_speed_for_power(10.0)              # wind speed(s) that produced ~10 MW
-"""
-
-#print(wind_speed_for_power(driver, 10.0))
-#print(wind_speed_for_power(driver, 10.0))
-print(spinning_intervals("Farm_East_tall"))
-print(was_spinning_at("Farm_East_tall", 15.0))
-print(highest_wind_speed())
-print(wind_speed_for_power(13.300000))
-
-# print("samples:", len(driver.history))
-# if driver.history:
-#     s = driver.history[-1]
-#     print("last sample:", s["time_s"], s["wind_speed"], "m/s")
-#     print("keys in rpm:", list(s["rpm"])[:3], "...")
-#     print("max tall rpm seen:", max(abs(x["rpm"].get("Farm_East_tall", 0.0))
-#                                     for x in driver.history))
-
-# clear_peak_state()
-# clear_history()
+# History queries
+# print(spinning_intervals("Farm_East_tall"))
+# print(was_spinning_at("Farm_East_tall", 9.0))
+# print(highest_wind_speed())
+# print(wind_speed_for_power(10.0))
