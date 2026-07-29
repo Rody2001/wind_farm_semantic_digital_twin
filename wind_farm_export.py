@@ -260,6 +260,11 @@ def main() -> None:
     ap.add_argument("--all-spin", action="store_true",
                     help="disable directional gating: every turbine spins regardless of facing")
     ap.add_argument("--publish", action="store_true", help="publish rpm/power/energy to ROS 2 topics")
+    ap.add_argument("--ui", action="store_true",
+                    help="open the browser control panel: sliders for wind speed, temperature "
+                         "and grid limit, compass for wind direction, live while the sim runs")
+    ap.add_argument("--ui-port", type=int, default=8080,
+                    help="port for the --ui control panel (default 8080)")
     ap.add_argument("--time", type=float, default=None,
                     help="run N seconds then auto-close, logging history at 1 Hz")
     ap.add_argument("--history-file", default="history.jsonl",
@@ -291,6 +296,8 @@ def main() -> None:
             cmd += ["--all-spin"]
         if args.publish:
             cmd += ["--publish"]
+        if args.ui:
+            cmd += ["--ui", "--ui-port", str(args.ui_port)]
         if args.time is not None:
             cmd += ["--time", str(args.time), "--history-file", args.history_file]
         if args.headless is not None:

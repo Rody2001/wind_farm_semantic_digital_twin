@@ -18,6 +18,15 @@ Topics (std_msgs/Float64), one per turbine plus farm totals:
     /wind_farm/temperature_c          current air temperature (deg C)
     /wind_farm/rho                    current air density (kg/m^3), from temperature_c
 
+Browser control panel:
+    --ui               serve control_panel.html and open it in a browser; the sliders and
+                       the compass change wind speed, wind direction, temperature and the
+                       grid limit while the simulation runs
+    --ui-port 8080     port for that panel (default 8080)
+The viewer keys below keep working exactly as before: both the keys and the browser
+write into one shared EnvironmentState, so a change made on either side shows up on
+the other. --ui also works together with --headless, i.e. control without a viewer.
+
 Timed run + history logging:
     --time 100         run 100 s then close automatically, logging history at 1 Hz
     --history-file PATH where to write the 1 Hz log (default history.jsonl); the queries
@@ -35,6 +44,7 @@ Viewer keys:
     S = wind-SPEED mode, then Up/Down = +/- 1 m/s
     D = wind-DIRECTION mode, then Up/Down = +/- 5 deg (0-360, wraps around)
     T = TEMPERATURE mode, then Up/Down = +/- 1 degC -- recomputes air density (rho) live
+    G = GRID-LIMIT mode, then Up/Down = +/- 50 MW
     R = reset (also zeros energy)
 Each turbine's nacelle automatically yaws to face wherever the wind is currently
 coming from, slewing smoothly rather than snapping to the new heading. Rotor RPM
@@ -124,6 +134,9 @@ class QueryDriver:
         self.rotor_rpm = {k: 0.0 for k in range(len(self.rotors))}   # actual (ramped) RPM per rotor
         self.last_readings = {}                          # name -> (rpm, power_w, energy_wh, active, cp)
         self.last_total_power = 0.0
+        # power the wind could give right now, before the grid cap is applied. The
+        # difference to last_total_power is what curtailment throws away.
+        self.last_available_power = 0.0
 
     def _blade_length(self, hub_body_id):
         for g in range(self.model.ngeom):
@@ -205,6 +218,7 @@ class QueryDriver:
     def advance(self, data: mujoco.MjData, wind_vec: np.ndarray, dt: float):
         self._update_yaw(data, wind_vec, dt)
         active, rows = self._active_set(data, wind_vec)
+        self.last_available_power = sum(r[2] for r in rows)
         total_power = 0.0
         max_rpm_step = self.rotor_accel_rpm_s * dt
         for k, target_rpm, target_power, target_cp in rows:
@@ -257,6 +271,8 @@ class Aerodynamics:
     def __init__(self, model: mujoco.MjModel):
         self.model = model
         self.rho = RHO   # mutable so temperature control ('T' key) can update it live
+        self.grid_limit_w = None   # no curtailment in the force model, but the attribute
+                                   # has to exist so the shared controls can address it
         self.blades = []
         for s in range(model.nsite):
             name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_SITE, s)
@@ -328,6 +344,8 @@ class RosPublisher:
             self.cp_pubs[n]     = self.node.create_publisher(Float64, f"/wind_farm/{base}/cp", 10)
         self.total_power_pub  = self.node.create_publisher(Float64, "/wind_farm/total_power_w", 10)
         self.total_energy_pub = self.node.create_publisher(Float64, "/wind_farm/total_energy_kwh", 10)
+        self.wind_speed_pub   = self.node.create_publisher(Float64, "/wind_farm/wind_speed_m_s", 10)
+        self.wind_direction_pub = self.node.create_publisher(Float64, "/wind_farm/wind_direction_deg", 10)
         self.temperature_pub  = self.node.create_publisher(Float64, "/wind_farm/temperature_c", 10)
         self.rho_pub          = self.node.create_publisher(Float64, "/wind_farm/rho", 10)
         self.grid_limit_pub   = self.node.create_publisher(Float64, "/wind_farm/grid_limit_mw", 10)
@@ -342,15 +360,21 @@ class RosPublisher:
         self.total_power_pub.publish(F(data=float(driver.last_total_power)))
         self.total_energy_pub.publish(F(data=float(driver.total_energy_wh / 1000.0)))
         temp_c = getattr(driver, "temp_c", None)
+        wind_speed = getattr(driver, "wind_speed", None)
+        wind_direction = getattr(driver, "wind_direction", None)
+        if wind_speed is not None:
+            self.wind_speed_pub.publish(F(data=float(wind_speed)))
+        if wind_direction is not None:
+            self.wind_direction_pub.publish(F(data=float(wind_direction)))
         if temp_c is not None:
             self.temperature_pub.publish(F(data=float(temp_c)))
         rho = getattr(driver, "rho", None)
         if rho is not None:
             self.rho_pub.publish(F(data=float(rho)))
         self._rclpy.spin_once(self.node, timeout_sec=0.0)
-        grid_limit_mw = getattr(driver, "grid_limit_w", None)
-        if grid_limit_mw is not None:
-            self.grid_limit_pub.publish(F(data=float(grid_limit_mw)))
+        grid_limit_w = getattr(driver, "grid_limit_w", None)
+        if grid_limit_w is not None:
+            self.grid_limit_pub.publish(F(data=float(grid_limit_w / 1e6)))
 
     def shutdown(self):
         self.node.destroy_node()
@@ -378,13 +402,14 @@ def _write_history(driver, path, elapsed, wind_speed, direction_deg):
         return
     def base(n):
         return n[:-6] if n.endswith("_rotor") else n
+    limit_w = getattr(driver, "grid_limit_w", None)
     sample = {
         "time_s": float(elapsed),
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "wind_speed": float(wind_speed),
         "wind_direction_deg": float(direction_deg),
         "total_power_w": float(getattr(driver, "last_total_power", 0.0)),
-        "grid_limit_mw": float(driver.grid_limit_w / 1e6) if driver.grid_limit_w is not None else None,
+        "grid_limit_mw": float(limit_w / 1e6) if limit_w is not None else None,
         "rpm": {base(n): r[0] for n, r in driver.last_readings.items()},
         "power_w": {base(n): r[1] for n, r in driver.last_readings.items()},
     }
@@ -394,22 +419,103 @@ def _write_history(driver, path, elapsed, wind_speed, direction_deg):
         print(f"[history] write failed: {exc!r}")
 
 
+# =================================================================== #
+# SHARED ENVIRONMENT  (viewer keys + browser panel write into the same state)
+# =================================================================== #
+SPEED_STEP = 1.0    # m/s per arrow press
+DIR_STEP = 5.0       # degrees per arrow press
+TEMP_STEP = 1.0      # deg C per arrow press
+GRIDLIMIT_STEP = 50.0  # MW per arrow press
+DEFAULT_GRIDLIMIT_MW = 500.0  # default grid limit in MW
+DEFAULT_TEMP_C = 15.0   # matches RHO = 1.225 kg/m^3 (ENERCON's "Standardluftdichte")
+
+
+def apply_environment(e, state, driver, announce=True):
+    """Push one EnvironmentState snapshot into the driver and the semantic world.
+
+    'state' is the local mirror of the last snapshot that was applied, so only
+    the quantities that really changed are acted on: the wind is written to the
+    wind-state file, the temperature is converted to an air density, and the
+    grid limit is handed to the driver's curtailment logic. The snapshot may
+    come from the viewer keys or from the browser panel -- this function does
+    not care which, it only prints where it came from.
+    """
+    changed = []
+
+    if e["wind_speed"] != state.get("speed") or e["wind_direction"] != state.get("direction"):
+        state["speed"] = e["wind_speed"]
+        state["direction"] = e["wind_direction"]
+        driver.wind_speed = state["speed"]
+        driver.wind_direction = state["direction"]
+        write_wind_state(state["speed"], state["direction"])   # tell the semantic world
+        changed.append(f"wind FROM {state['direction']:.1f} deg @ {state['speed']:.1f} m/s")
+
+    if e["temperature"] != state.get("temp_c"):
+        state["temp_c"] = e["temperature"]
+        driver.rho = formulas.rho_for_temperature(state["temp_c"])
+        driver.temp_c = state["temp_c"]
+        changed.append(f"T = {state['temp_c']:.1f} degC -> rho = {driver.rho:.4f} kg/m^3")
+
+    if e["grid_limit"] != state.get("gridlimit_mw"):
+        state["gridlimit_mw"] = e["grid_limit"]
+        if hasattr(driver, "grid_limit_w"):
+            driver.grid_limit_w = state["gridlimit_mw"] * 1e6
+        changed.append(f"grid limit = {state['gridlimit_mw']:.0f} MW")
+
+    if announce and changed:
+        print(f"  [{e['source']}] " + "   ".join(changed))
+    return bool(changed)
+
+
+def push_telemetry(env, driver, data):
+    """Send the read-only numbers back to the browser panel (no-op without --ui)."""
+    if env is None:
+        return
+    rpms = driver.rpm(data)
+    spinning = sum(1 for v in rpms.values() if abs(v) > 1e-6)
+    limit_w = getattr(driver, "grid_limit_w", None)
+    available = getattr(driver, "last_available_power", 0.0)
+    env.set_telemetry(
+        power=getattr(driver, "last_total_power", 0.0) / 1e6,     # MW, same unit as the slider
+        energy=getattr(driver, "total_energy_wh", 0.0) / 1000.0,  # kWh
+        spinning=f"{spinning}/{len(rpms)}",
+        curtailed=bool(limit_w is not None and available > limit_w + 1.0),
+    )
+
+
 # --------------------------------------------------------------------------- #
 def run_headless(model, data, driver, seconds, wind_speed, publisher=None, direction=0.0,
-                 history_path=None):
+                 history_path=None, env=None):
     steps = int(seconds / model.opt.timestep)
     pub_every = max(1, int(0.1 / model.opt.timestep))    # ~10 Hz
     hist_every = max(1, int(1.0 / model.opt.timestep))   # 1 Hz
-    wind = wind_from_bearing(wind_speed, direction)
-    write_wind_state(wind_speed, direction)   # let the semantic world see this run's wind too
-    print(f"Headless: {seconds}s @ {wind_speed} m/s (wind FROM {direction:.1f} deg)\n")
+    tele_every = max(1, int(0.2 / model.opt.timestep))   # 5 Hz, matches the panel's poll rate
+
+    if env is None:
+        env = EnvironmentState(wind_speed=wind_speed, wind_direction=direction % 360.0,
+                               temperature=getattr(driver, "temp_c", DEFAULT_TEMP_C),
+                               grid_limit=DEFAULT_GRIDLIMIT_MW)
+    state = {}
+    snap = env.snapshot()
+    apply_environment(snap, state, driver, announce=False)
+    last_version = snap["version"]
+    wind = wind_from_bearing(state["speed"], state["direction"])
+
+    print(f"Headless: {seconds}s @ {state['speed']} m/s (wind FROM {state['direction']:.1f} deg)\n")
     hist_n = 0
     for i in range(steps):
+        snap = env.snapshot()
+        if snap["version"] != last_version:          # keys or browser changed something
+            last_version = snap["version"]
+            apply_environment(snap, state, driver)
+            wind = wind_from_bearing(state["speed"], state["direction"])
         driver.advance(data, wind, model.opt.timestep)
         if publisher and i % pub_every == 0:
             publisher.publish(driver)
+        if i % tele_every == 0:
+            push_telemetry(env, driver, data)
         if history_path and i % hist_every == 0:
-            _write_history(driver, history_path, data.time, wind_speed, direction)
+            _write_history(driver, history_path, data.time, state["speed"], state["direction"])
             hist_n += 1
         if i % int(0.5 / model.opt.timestep) == 0:
             rpms = driver.rpm(data)
@@ -422,27 +528,24 @@ def run_headless(model, data, driver, seconds, wind_speed, publisher=None, direc
     return driver.rpm(data)
 
 
-SPEED_STEP = 1.0    # m/s per arrow press
-DIR_STEP = 5.0       # degrees per arrow press
-TEMP_STEP = 1.0      # deg C per arrow press
-GRIDLIMIT_STEP = 50.0  # MW per arrow press
-DEFAULT_GRIDLIMIT_MW = 500.0  # default grid limit in MW
-DEFAULT_TEMP_C = 15.0   # matches RHO = 1.225 kg/m^3 (ENERCON's "Standardluftdichte")
-
-
 def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0, temp_c=DEFAULT_TEMP_C,
-               run_seconds=None, history_path=None):
+               run_seconds=None, history_path=None, env=None):
     import mujoco.viewer
+
+    # The environment lives in one shared, thread-safe object. The arrow keys below
+    # write into it, and so does the browser panel when --ui is on; the simulation
+    # loop only ever reads it. Without --ui the object is still used, so there is a
+    # single code path for both input methods.
+    if env is None:
+        limit = getattr(driver, "grid_limit_w", None)
+        env = EnvironmentState(wind_speed=wind_speed, wind_direction=direction % 360.0,
+                               temperature=temp_c,
+                               grid_limit=limit / 1e6 if limit is not None else DEFAULT_GRIDLIMIT_MW)
+
     # mode: "speed"/"direction"/"temperature"/"gridlimit" -> which quantity the arrow keys control
-    initial_gridlimit = driver.grid_limit_w / 1e6 if driver.grid_limit_w is not None else DEFAULT_GRIDLIMIT_MW
-    state = {"speed": wind_speed, "direction": direction % 360.0, "mode": "speed",
-             "temp_c": temp_c, "gridlimit_mw": initial_gridlimit}
-    # Apply default grid limit if none was set
-    if driver.grid_limit_w is None:
-        driver.grid_limit_w = DEFAULT_GRIDLIMIT_MW * 1e6
-    write_wind_state(state["speed"], state["direction"])  # publish initial wind immediately
-    driver.rho = formulas.rho_for_temperature(state["temp_c"])
-    driver.temp_c = state["temp_c"]
+    state = {"mode": "speed"}
+    apply_environment(env.snapshot(), state, driver, announce=False)
+    last_version = env.snapshot()["version"]
 
     def key_cb(keycode):
         if keycode in (83, 115):                     # 's' / 'S' -> speed mode
@@ -459,8 +562,8 @@ def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0, t
             return
         if keycode in (71, 103):                       # 'g' / 'G' -> gridlimit mode
             state["mode"] = "gridlimit"
-            current = state["gridlimit_mw"]
-            print(f"Mode: GRID LIMIT (Up/Down arrows, +/- 50 MW) -- currently {current:.0f} MW")
+            print(f"Mode: GRID LIMIT (Up/Down arrows, +/- {GRIDLIMIT_STEP:.0f} MW) "
+                  f"-- currently {env.grid_limit:.0f} MW")
             return
         if keycode in (82, 114):                       # 'r' / 'R' -> reset
             mujoco.mj_resetData(model, data)
@@ -468,40 +571,23 @@ def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0, t
                 driver.reset_energy()
             return
         if keycode == 265:                             # Up arrow
-            if state["mode"] == "speed":
-                state["speed"] += SPEED_STEP
-            elif state["mode"] == "direction":
-                state["direction"] = (state["direction"] + DIR_STEP) % 360.0
-            elif state["mode"] == "temperature":
-                state["temp_c"] += TEMP_STEP
-            elif state["mode"] == "gridlimit":
-                state["gridlimit_mw"] += GRIDLIMIT_STEP
+            sign = +1.0
         elif keycode == 264:                           # Down arrow
-            if state["mode"] == "speed":
-                state["speed"] = max(0.0, state["speed"] - SPEED_STEP)
-            elif state["mode"] == "direction":
-                state["direction"] = (state["direction"] - DIR_STEP) % 360.0
-            elif state["mode"] == "temperature":
-                state["temp_c"] -= TEMP_STEP
-            elif state["mode"] == "gridlimit":
-                state["gridlimit_mw"] = max(0.0, state["gridlimit_mw"] - GRIDLIMIT_STEP)
+            sign = -1.0
         else:
             return
-        if state["mode"] == "temperature":
-            driver.rho = formulas.rho_for_temperature(state["temp_c"])
-            driver.temp_c = state["temp_c"]
-            print(f"  temperature = {state['temp_c']:.1f} degC   "
-                  f"-> rho = {driver.rho:.4f} kg/m^3")
-            return
-        if state["mode"] == "gridlimit":
-            driver.grid_limit_w = state["gridlimit_mw"] * 1e6
-            print(f"  grid limit = {state['gridlimit_mw']:.0f} MW")
-            return
-        write_wind_state(state["speed"], state["direction"])  # tell the semantic world
+
+        # Only write the new value; clamping (>= 0 m/s) and the 0-360 wrap happen
+        # inside EnvironmentState, and the effect is applied by the loop below.
+        now = env.snapshot()
         if state["mode"] == "speed":
-            print(f"  wind = {state['speed']:.1f} m/s")
-        else:
-            print(f"  wind FROM {state['direction']:.1f} deg")
+            env.update(source="keys", wind_speed=now["wind_speed"] + sign * SPEED_STEP)
+        elif state["mode"] == "direction":
+            env.update(source="keys", wind_direction=now["wind_direction"] + sign * DIR_STEP)
+        elif state["mode"] == "temperature":
+            env.update(source="keys", temperature=now["temperature"] + sign * TEMP_STEP)
+        elif state["mode"] == "gridlimit":
+            env.update(source="keys", grid_limit=now["grid_limit"] + sign * GRIDLIMIT_STEP)
 
     def current_wind():
         return wind_from_bearing(state["speed"], state["direction"])
@@ -512,11 +598,15 @@ def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0, t
         v.cam.elevation = -12
         v.cam.azimuth = 120
         start = time.time()
-        print_t = pub_t = start
+        print_t = pub_t = tele_t = start
         hist_t = start - 1.0        # so the first sample is written right away
         hist_n = 0
         while v.is_running():
             step_start = time.time()
+            snap = env.snapshot()
+            if snap["version"] != last_version:      # keys or browser changed something
+                last_version = snap["version"]
+                apply_environment(snap, state, driver)
             driver.advance(data, current_wind(), model.opt.timestep)
             v.sync()
             now = time.time()
@@ -524,6 +614,9 @@ def run_viewer(model, data, driver, wind_speed, publisher=None, direction=0.0, t
             if publisher and now - pub_t > 0.1:             # ~10 Hz
                 publisher.publish(driver)
                 pub_t = now
+            if now - tele_t > 0.2:                          # 5 Hz, feeds the browser readout
+                push_telemetry(env, driver, data)
+                tele_t = now
             if history_path and now - hist_t >= 1.0:        # 1 Hz history log
                 _write_history(driver, history_path, elapsed, state["speed"], state["direction"])
                 hist_n += 1
@@ -567,7 +660,8 @@ def main():
     ap.add_argument("--tsr", type=float, default=formulas.TSR, help="tip-speed ratio (default 6)")
     ap.add_argument("--gridLimit", type=float, default=None,
                     help="grid UPPER limit in MW; only run enough turbines so the total "
-                         "generated power stays under it (curtailment)")
+                         "generated power stays under it (curtailment). Default 500 MW in "
+                         "the viewer; change it live with 'g' or with the browser panel.")
     ap.add_argument("--cp", type=float, default=None,
                     help="override cp with a fixed value; default is to use the "
                          "polynomial cp(v) fit (recommended, updates live with wind speed)")
@@ -581,6 +675,11 @@ def main():
                     help="initial air temperature in deg C (default 15, -> rho=1.225 kg/m^3). "
                          "Sets rho via the ideal gas law. Change live in the viewer: "
                          "press 't' then Up/Down arrows.")
+    ap.add_argument("--ui", action="store_true",
+                    help="serve the browser control panel (sliders for wind speed, temperature "
+                         "and grid limit, compass for wind direction) and open it")
+    ap.add_argument("--ui-port", type=int, default=8080,
+                    help="port for the --ui control panel (default 8080)")
     ap.add_argument("--time", type=float, default=None,
                     help="run for N seconds then close automatically, logging history at 1 Hz")
     ap.add_argument("--history-file", default="history.jsonl",
@@ -619,6 +718,16 @@ def main():
             for name, *_ in driver.rotors:
                 print(f"    {name:28s} {'RUN ' if name in running else 'idle'}")
 
+    # One shared environment for the viewer keys and the browser panel.
+    env = EnvironmentState(
+        wind_speed=args.wind,
+        wind_direction=args.direction % 360.0,
+        temperature=args.temp,
+        grid_limit=args.gridLimit if args.gridLimit is not None else DEFAULT_GRIDLIMIT_MW,
+    )
+    if args.ui:
+        start_control_server(env, port=args.ui_port, open_browser=True)
+
     publisher = None
     if args.publish:
         rotor_names = [r[0] for r in driver.rotors]
@@ -640,10 +749,10 @@ def main():
     try:
         if args.headless is not None:
             run_headless(model, data, driver, args.headless, args.wind, publisher,
-                         args.direction, history_path)
+                         args.direction, history_path, env=env)
         else:
             run_viewer(model, data, driver, args.wind, publisher, args.direction, args.temp,
-                       run_seconds=args.time, history_path=history_path)
+                       run_seconds=args.time, history_path=history_path, env=env)
     finally:
         if publisher:
             publisher.shutdown()

@@ -221,3 +221,7 @@ time.sleep(5)   # let the 20 Hz timer step the driver and ramp RPM up
 # print(was_spinning_at("Farm_East_tall", 9.0))
 # print(highest_wind_speed())
 # print(wind_speed_for_power(10.0))
+
+
+
+# print(world.semantic_annotations)
