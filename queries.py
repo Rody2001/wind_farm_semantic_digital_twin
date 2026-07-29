@@ -1,10 +1,39 @@
-# SemanticAnnotation is only available with the framework installed.
-# Guarded so queries.py also imports standalone (e.g. just to compare farms).
+"""
+queries.py
+===================================================================
+Queries over the semantic digital twin.
+
+Every live query below reads a SemanticAnnotation out of the World. Nothing here
+touches driver.turbines or driver.wind_speed:
+
+    is_turbine_spinning(driver, "Farm_East_tall")
+        -> finds the RotorSpeed annotation whose turbine is "Farm_East_tall"
+           (it is rooted at that turbine's hub Body)
+        -> returns True if its value is above the threshold
+
+The queries accept either the World or the driver -- the driver only serves as a
+handle to reach its .world, so the existing call sites keep working unchanged.
+
+The annotations themselves are written by SemanticWindDriver.step(), in the same
+loop that moves the turbines, so they always show what MuJoCo is doing now.
+
+The history queries at the bottom are different in kind: they answer questions
+about time spans in a run that has already happened, which the world cannot hold
+because the world only ever represents the present. They read the 1 Hz log.
+===================================================================
+"""
+
 import time
 
 from history_file import clear_history, load_history, DEFAULT_HISTORY_FILE
 from main1 import main
 from peak_state_file import clear_peak_state
+
+from semantic_annotations import (
+    GeneratedEnergy, GeneratedPower, NacelleYaw, RotorSpeed,
+    Temperature, WindDirection, WindSpeed,
+)
+from semantic_environment import find_annotation, find_annotations, scalar, world_of
 
 try:
     from semantic_digital_twin.world_description.world_entity import SemanticAnnotation
@@ -13,70 +42,184 @@ except Exception:  # noqa: BLE001
 
 
 # ------------------------------------------------------------------ #
-# LIVE queries against a running SemanticWindDriver (main1.py)
+# ENVIRONMENT queries -- the three environment annotations
 # ------------------------------------------------------------------ #
-def is_turbine_spinning(driver, name: str, eps: float = 0.05) -> bool:
-    """True if turbine `name`'s rotor is currently turning (RPM above a small threshold)."""
-    return driver.is_spinning(name, eps=eps)
+def wind_speed(source) -> float:
+    """Current wind speed [m/s], from the world's WindSpeed annotation."""
+    return scalar(source, WindSpeed)
 
 
-def turbine_rpm(driver, name: str) -> float:
-    """Current (ramped) RPM of turbine `name`, live from the running driver."""
-    return driver.rpm(name)
+def wind_direction(source) -> float:
+    """Compass bearing the wind comes FROM [deg], from the WindDirection annotation."""
+    return scalar(source, WindDirection)
 
 
-def turbine_nacelle_yaw_deg(driver, name: str) -> float:
-    """Current nacelle yaw angle of turbine `name`, in degrees, live from the running driver."""
-    return driver.nacelle_yaw_deg(name)
+def temperature(source) -> float:
+    """Current air temperature [deg C], from the Temperature annotation."""
+    return scalar(source, Temperature, default=15.0)
 
 
-def turbine_status(driver, name: str = None) -> dict:
-    """Full live snapshot: wind speed/direction plus one turbine (or all of them)."""
-    return driver.status(name)
+def environment(source) -> dict:
+    """All three environment annotations in one dict."""
+    return {
+        "wind_speed": wind_speed(source),
+        "wind_direction_deg": wind_direction(source),
+        "temperature_c": temperature(source),
+    }
 
 
-def fastest_turbine(driver) -> (str, float):
+def is_environment_live(source, max_age_s: float = 2.0) -> bool:
+    """Is the world still being updated, or are these numbers stale?"""
+    ann = find_annotation(source, WindSpeed)
+    return ann is not None and ann.is_fresh(max_age_s)
+
+
+def annotation_report(source) -> str:
+    """One line per measured annotation -- handy for a screenshot in the thesis."""
+    lines = [f"  {find_annotation(source, cls)}"
+             for cls in (WindSpeed, WindDirection, Temperature)]
+    for ann in find_annotations(source, RotorSpeed):
+        lines.append(f"  {ann}")
+    return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ #
+# LIVE turbine queries -- the per-turbine annotations in the world
+# ------------------------------------------------------------------ #
+def turbine_names(source) -> list:
+    """Every turbine that has a RotorSpeed annotation in the world."""
+    return [a.turbine for a in find_annotations(source, RotorSpeed)]
+
+
+def turbine_rpm(source, name: str) -> float:
+    """Rotor speed [rpm] of turbine `name`, from the RotorSpeed on its hub."""
+    return scalar(source, RotorSpeed, name)
+
+
+def turbine_power(source, name: str) -> float:
+    """Generated power [W] of turbine `name`, from its GeneratedPower annotation."""
+    return scalar(source, GeneratedPower, name)
+
+
+def turbine_energy(source, name: str) -> float:
+    """Energy generated so far [kWh] by turbine `name`."""
+    return scalar(source, GeneratedEnergy, name)
+
+
+def turbine_nacelle_yaw_deg(source, name: str) -> float:
+    """Nacelle yaw angle [deg] of turbine `name`, from the NacelleYaw on its nacelle."""
+    return scalar(source, NacelleYaw, name)
+
+
+def is_turbine_spinning(source, name: str, eps: float = 0.05) -> bool:
+    """True if turbine `name`'s rotor is turning (RPM above a small threshold)."""
+    return abs(turbine_rpm(source, name)) > eps
+
+
+def turbine_body(source, name: str):
+    """The Body the turbine's rotor speed is attached to -- its hub."""
+    ann = find_annotation(source, RotorSpeed, name)
+    return None if ann is None else ann.root
+
+
+def turbine_status(source, name: str = None) -> dict:
+    """Full snapshot: the environment plus one turbine, or every turbine."""
+    if name is not None:
+        return {
+            "name": name,
+            "rpm": turbine_rpm(source, name),
+            "spinning": is_turbine_spinning(source, name),
+            "nacelle_yaw_deg": turbine_nacelle_yaw_deg(source, name),
+            "power_w": turbine_power(source, name),
+            "energy_kwh": turbine_energy(source, name),
+            **environment(source),
+        }
+    return {
+        **environment(source),
+        "turbines": {n: turbine_status(source, n) for n in turbine_names(source)},
+    }
+
+
+def total_power(source) -> float:
+    """Total generated power [W] across the whole farm right now."""
+    return sum(a.value for a in find_annotations(source, GeneratedPower))
+
+
+def total_energy(source) -> float:
+    """Total energy [kWh] generated across the farm since the run started."""
+    return sum(a.value for a in find_annotations(source, GeneratedEnergy))
+
+
+def spinning_turbines(source, eps: float = 0.05) -> list:
+    """Names of every turbine currently turning."""
+    return [a.turbine for a in find_annotations(source, RotorSpeed) if abs(a.value) > eps]
+
+
+def idle_turbines(source, eps: float = 0.05) -> list:
+    """Names of every turbine standing still: below cut-in, or not facing the wind."""
+    return [a.turbine for a in find_annotations(source, RotorSpeed) if abs(a.value) <= eps]
+
+
+def fastest_turbine(source) -> (str, float):
     """Name and RPM of the turbine with the fastest rotor speed."""
-    return (max(driver.turbines.values(), key=lambda t: t.current_rpm).name, max(driver.turbines.values(), key=lambda t: t.current_rpm).current_rpm)
+    anns = find_annotations(source, RotorSpeed)
+    if not anns:
+        return (None, 0.0)
+    a = max(anns, key=lambda a: a.value)
+    return (a.turbine, a.value)
 
 
-def slowest_turbine(driver) -> (str, float):
+def slowest_turbine(source) -> (str, float):
     """Name and RPM of the turbine with the slowest rotor speed."""
-    return (min(driver.turbines.values(), key=lambda t: t.current_rpm).name, min(driver.turbines.values(), key=lambda t: t.current_rpm).current_rpm)
+    anns = find_annotations(source, RotorSpeed)
+    if not anns:
+        return (None, 0.0)
+    a = min(anns, key=lambda a: a.value)
+    return (a.turbine, a.value)
 
-def slowest_moving_turbine(driver) -> (str, float):
+
+def slowest_moving_turbine(source) -> (str, float):
     """Name and RPM of the moving turbine with the slowest rotor speed."""
-    moving = [t for t in driver.turbines.values() if abs(t.current_rpm) > 1e-9]
+    moving = [a for a in find_annotations(source, RotorSpeed) if abs(a.value) > 1e-9]
     if not moving:
         return (None, 0.0)
-    turbine = min(moving, key=lambda t: abs(t.current_rpm))
-    return (turbine.name, turbine.current_rpm)
+    a = min(moving, key=lambda a: abs(a.value))
+    return (a.turbine, a.value)
 
-def most_powerful_turbine(driver) -> (str, float):
+
+def most_powerful_turbine(source) -> (str, float):
     """Name and generated power [W] of the turbine producing the most."""
-    generating = [t for t in driver.turbines.values() if t.current_power > 0]
+    generating = [a for a in find_annotations(source, GeneratedPower) if a.value > 0]
     if not generating:
         return (None, 0.0)
-    turbine = max(generating, key=lambda t: t.current_power)
-    return (turbine.name, turbine.current_power)
+    a = max(generating, key=lambda a: a.value)
+    return (a.turbine, a.value)
 
-def least_powerful_turbine(driver) -> (str, float):
+
+def least_powerful_turbine(source) -> (str, float):
     """Name and generated power [W] of the turbine producing the least."""
-    return (min(driver.turbines.values(), key=lambda t: t.current_power).name, min(driver.turbines.values(), key=lambda t: t.current_power).current_power)
+    anns = find_annotations(source, GeneratedPower)
+    if not anns:
+        return (None, 0.0)
+    a = min(anns, key=lambda a: a.value)
+    return (a.turbine, a.value)
 
-def least_powerful_moving_turbine(driver) -> (str, float):
+
+def least_powerful_moving_turbine(source) -> (str, float):
     """Name and generated power [W] of the moving turbine producing the least."""
-    moving = [t for t in driver.turbines.values() if abs(t.current_rpm) > 1e-9]
-    if not moving:
+    moving = {a.turbine for a in find_annotations(source, RotorSpeed)
+              if abs(a.value) > 1e-9}
+    generating = [a for a in find_annotations(source, GeneratedPower)
+                  if a.turbine in moving]
+    if not generating:
         return (None, 0.0)
-    turbine = min(moving, key=lambda t: abs(t.current_power))
-    return (turbine.name, turbine.current_power)
+    a = min(generating, key=lambda a: a.value)
+    return (a.turbine, a.value)
 
-def peak_power(driver) -> (str, float):
-    """Timestamp of the highest power generation, and how much it was [W]."""
-    if driver.peak_status is None:
-        return (None, 0.0)
-    return (driver.peak_status["timestamp"], driver.peak_status["total_power_w"])
+
+# ------------------------------------------------------------------ #
+# PEAK queries -- a record of the past, so still driver state
+# ------------------------------------------------------------------ #
 
 def peak_power_report(driver) -> str:
     """Human-readable one-liner for the peak."""
@@ -86,6 +229,7 @@ def peak_power_report(driver) -> str:
     return (f"peak {s['total_power_w']/1e6:.3f} MW at {s['timestamp']} "
             f"(t={s['time_s']:.2f}s, wind {s['wind_speed']:.1f} m/s "
             f"from {s['wind_direction_deg']:.0f} deg)")
+
 
 # ------------------------------------------------------------------ #
 # History Queries
@@ -106,6 +250,7 @@ def _samples(source):
         return source
     raise TypeError(f"cannot read history from {type(source).__name__}; "
                     f"pass a file path, a HistoryLog, or leave blank")
+
 
 # --- 1.when was turbine X spinning? ---------------------------------  #
 def spinning_intervals(name: str, source=None, eps: float = 0.05,
@@ -198,13 +343,19 @@ def wind_speed_for_power(target_mw: float, source=None, tol_frac: float = 0.05) 
     }
 
 
+# ------------------------------------------------------------------ #
 world, driver = main()
-time.sleep(5)   # let the 20 Hz timer step the driver and ramp RPM up
-# Live queries
+time.sleep(5)   # let the 20 Hz timer step the driver and fill the annotations
+
+# Environment -- read out of the semantic world
+# print(annotation_report(world))
+
+# Live turbine queries -- every one of these reads an annotation, not the driver
 # print(is_turbine_spinning(driver, "Farm_East_tall"))
 # print(turbine_rpm(driver, "Farm_East_tall"))
 # print(turbine_nacelle_yaw_deg(driver, "Farm_East_tall"))
 # print(turbine_status(driver, "Farm_East_tall"))
+
 # print(turbine_status(driver))
 # print(fastest_turbine(driver))
 # print(slowest_turbine(driver))
@@ -213,15 +364,10 @@ time.sleep(5)   # let the 20 Hz timer step the driver and ramp RPM up
 # print(least_powerful_turbine(driver))
 # print(least_powerful_moving_turbine(driver))
 # print(peak_power_report(driver))
-# print(peak_power(driver))
 
-
-# History queries
-# print(spinning_intervals("Farm_East_tall"))
-# print(was_spinning_at("Farm_East_tall", 9.0))
-# print(highest_wind_speed())
-# print(wind_speed_for_power(10.0))
-
-
-
-# print(world.semantic_annotations)
+# History queries -- the recorded run, not the live world
+print(spinning_intervals("Farm_East_tall"))
+print(was_spinning_at("Farm_East_tall", 40.0))
+print(was_spinning_at("Farm_East_tall", 70.0))
+print(highest_wind_speed())
+print(wind_speed_for_power(143.0))

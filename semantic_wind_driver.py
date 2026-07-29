@@ -61,13 +61,18 @@ from wind_state_file import read_wind_state  # optional: follow wind from the Mu
 class TurbineRuntime:
     """Everything the driver needs to animate + query one turbine."""
     name: str
-    hub_conn: RevoluteConnection        # rotor spin (axis X, child of nacelle)
-    nacelle_conn: RevoluteConnection    # yaw (axis Z, child of tower)
+    hub_conn: RevoluteConnection
+    nacelle_conn: RevoluteConnection
     blade_length: float
-    base_yaw_rad: float                 # fixed world yaw of the tower (farm layout orientation)
+    base_yaw_rad: float
     current_rpm: float = 0.0
-    current_power: float = 0.0          # W, mirrors the published power_w
-    current_energy_kwh: float = 0.0     # kWh, cumulative
+    current_power: float = 0.0
+    current_energy_kwh: float = 0.0
+    # measured annotations in the World, filled in by annotate_turbines()
+    rotor_speed_ann: object = None
+    nacelle_yaw_ann: object = None
+    power_ann: object = None
+    energy_ann: object = None
 
 
 def _wrap_to_pi(angle: float) -> float:
@@ -90,7 +95,8 @@ class SemanticWindDriver:
     def __init__(self, world: World, turbines: Dict[str, TurbineRuntime],
                  tsr: float = formulas.TSR, yaw_rate_deg: float = 10.0,
                  rotor_accel_rpm_s: float = 1.0, follow_wind_file: str = None,
-                 ros_subscriber=None, peak_file: str = "peak_state.json"):
+                 ros_subscriber=None, peak_file: str = "peak_state.json",
+                 environment=None):
         self.world = world
         self.turbines = turbines
         self.tsr = tsr
@@ -98,21 +104,11 @@ class SemanticWindDriver:
         self.rotor_accel_rpm_s = rotor_accel_rpm_s
         self.wind_speed = 0.0
         self.wind_direction_deg = 0.0
-        # If set, step() re-reads wind from this file every tick instead of only from
-        # set_wind() -- lets a MuJoCo viewer (wind_turbine_sim.py) running in a separate
-        # process drive this world's wind live. Manual set_wind() calls still work when
-        # this is None (e.g. for standalone testing without MuJoCo running); when it's
-        # set, the next step() overwrites them with whatever the file says, since the
-        # file is treated as the source of truth. Pass None to disable and go back to
-        # pure manual control.
         self.follow_wind_file = follow_wind_file
-        # If set (a RosTurbineSubscriber), step() mirrors that turbine's published rpm
-        # directly instead of recomputing it from wind physics here -- so this world's
-        # numbers are exactly MuJoCo's, not an independent (and possibly diverging)
-        # simulation. Falls back to our own wind-driven ramp until the first message
-        # actually arrives for a turbine (e.g. before --publish is running), so queries
-        # aren't stuck at a meaningless 0 in the meantime.
         self.ros_subscriber = ros_subscriber
+        # The three environment annotations in the World. step() writes the current
+        # wind into them, the same way it writes turbine poses into world.state.
+        self.environment = environment
 
         # ---- peak tracking (persisted across process restarts) ----
         self.elapsed = 0.0                  # sim time accumulated across step() calls
@@ -140,6 +136,8 @@ class SemanticWindDriver:
         if self.follow_wind_file:
             self.wind_speed, self.wind_direction_deg = read_wind_state(self.follow_wind_file)
         speed, direction_deg = self.wind_speed, self.wind_direction_deg
+        if self.environment is not None:
+            self.environment.update(wind_speed=speed, wind_direction_deg=direction_deg)
         wind_vec = formulas.wind_from_bearing(speed, direction_deg)
 
         if speed > 1e-9:
@@ -194,6 +192,15 @@ class SemanticWindDriver:
                     t.current_power = (0.0 if abs(t.current_rpm) < 1e-9 else
                                        formulas.generated_power_for_length(
                                            formulas.RHO, effective_wind, t.blade_length))
+                # The same values, now as properties of the bodies they belong to,
+                # which is where every query reads them from.
+                if t.rotor_speed_ann is not None:
+                    t.rotor_speed_ann.set(t.current_rpm)
+                    t.power_ann.set(t.current_power)
+                    t.energy_ann.set(t.current_energy_kwh)
+                    t.nacelle_yaw_ann.set(np.degrees(new_yaw))
+
+                omega = t.current_rpm * 2.0 * np.pi / 60.0
 
                 omega = t.current_rpm * 2.0 * np.pi / 60.0
                 hub_dof_id = t.hub_conn.raw_dof.id

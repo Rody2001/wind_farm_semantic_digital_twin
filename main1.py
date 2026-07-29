@@ -31,6 +31,7 @@ from wind_farm_export import combined_specs, R_BLADE_LENGTH
 from semantic_wind_driver import SemanticWindDriver, TurbineRuntime, set_wind
 from wind_state_file import DEFAULT_PATH as WIND_STATE_PATH
 from ros_turbine_subscriber import RosTurbineSubscriber
+from semantic_environment import EnvironmentAnnotations, annotate_turbines
 
 
 clear_peak_state()
@@ -267,7 +268,8 @@ def main():
                 name=spec.name, hub_conn=hub, nacelle_conn=nacelle,
                 blade_length=blade_length, base_yaw_rad=spec.yaw,
             )
-
+        environment = EnvironmentAnnotations(world)
+        annotate_turbines(world, turbine_runtimes)
     # =====================================================================
     # ROS2 Node (created early so we can subscribe before building the driver)
     # =====================================================================
@@ -290,8 +292,9 @@ def main():
     # from ros_subscriber instead, once wind_turbine_sim.py is run with --publish.
     # For standalone testing without MuJoCo running at all, pass follow_wind_file=None
     # and ros_subscriber=None, and use set_wind(driver, ...) manually.
+    environment.attach_ros(node)  # temperature subscription
     driver = SemanticWindDriver(world, turbine_runtimes, follow_wind_file=WIND_STATE_PATH,
-                                ros_subscriber=ros_subscriber)
+                                ros_subscriber=ros_subscriber, environment=environment)
     set_wind(driver, speed=0.0, direction_deg=0.0)   # initial value until the file updates it
 
     # =====================================================================
