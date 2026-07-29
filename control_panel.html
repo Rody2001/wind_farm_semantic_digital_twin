@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Environment console &middot; wind farm simulation</title>
+<style>
+  :root{
+    --sheet:#c9d3d8;
+    --panel:#f3f6f7;
+    --panel-2:#e6ebed;
+    --ink:#0d1920;
+    --ink-soft:#5b6d77;
+    --rule:#aebac1;
+    --signal:#f0a500;
+    --alarm:#b4232a;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+    --sans: "Inter", "Helvetica Neue", Arial, system-ui, sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:18px; background:var(--sheet); color:var(--ink);
+    font-family:var(--sans); font-size:14px;
+    display:flex; justify-content:center;
+  }
+  .console{
+    width:100%; max-width:420px; background:var(--panel);
+    border:1px solid var(--rule); border-top:3px solid var(--ink);
+  }
+
+  /* ---- masthead ------------------------------------------------------- */
+  .mast{
+    display:flex; align-items:baseline; justify-content:space-between;
+    gap:12px; padding:12px 16px 10px; border-bottom:1px solid var(--rule);
+  }
+  .mast h1{
+    margin:0; font-size:13px; font-weight:700;
+    letter-spacing:.16em; text-transform:uppercase;
+  }
+  .link{
+    font-family:var(--mono); font-size:10px; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--ink-soft);
+    display:flex; align-items:center; gap:6px;
+  }
+  .dot{width:7px; height:7px; background:var(--ink-soft); border-radius:50%}
+  .link.live .dot{background:#2f8f4e}
+  .link.lost .dot{background:var(--alarm)}
+
+  /* ---- compass -------------------------------------------------------- */
+  .rose{padding:18px 16px 14px; border-bottom:1px solid var(--rule)}
+  .rose-head{display:flex; align-items:baseline; justify-content:space-between}
+  .field-label{
+    font-size:10px; font-weight:600; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ink-soft);
+  }
+  .value{font-family:var(--mono); font-variant-numeric:tabular-nums}
+  .rose .value{font-size:26px; line-height:1}
+  .value .unit{font-size:.55em; color:var(--ink-soft); margin-left:2px}
+  .dial{display:block; margin:8px auto 4px; width:216px; max-width:100%; touch-action:none; cursor:grab}
+  .dial:active{cursor:grabbing}
+  .dial:focus{outline:none}
+  .dial:focus-visible .bezel{stroke:var(--ink); stroke-width:2.5}
+  .bezel{fill:var(--panel-2); stroke:var(--rule); stroke-width:1}
+  .tick{stroke:var(--ink-soft); stroke-width:1}
+  .tick.major{stroke:var(--ink); stroke-width:1.5}
+  .card{font-family:var(--mono); font-size:12px; fill:var(--ink-soft); text-anchor:middle; dominant-baseline:middle}
+  .card.n{fill:var(--ink); font-weight:700}
+  .vane{transform-origin:120px 120px; transition:transform .12s linear}
+  .vane .flag{fill:var(--signal); stroke:var(--ink); stroke-width:1.25; stroke-linejoin:round}
+  .vane .shaft{stroke:var(--ink); stroke-width:2}
+  .vane .head{fill:var(--ink)}
+  .hub{fill:var(--panel); stroke:var(--ink); stroke-width:1.5}
+  .hint{margin:0; font-size:11px; color:var(--ink-soft); line-height:1.45}
+
+  /* ---- sliders -------------------------------------------------------- */
+  .row{padding:14px 16px; border-bottom:1px solid var(--rule)}
+  .row:last-child{border-bottom:none}
+  .row-head{display:flex; align-items:baseline; justify-content:space-between; gap:8px}
+  .row .value{font-size:19px}
+  .track-wrap{position:relative; margin:8px 0 4px}
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:24px;
+    background:transparent; margin:0; display:block;
+  }
+  input[type=range]::-webkit-slider-runnable-track{
+    height:8px; border:1px solid var(--rule);
+    background:linear-gradient(to right, var(--signal) 0 var(--fill,0%), var(--panel-2) var(--fill,0%) 100%);
+  }
+  input[type=range]::-moz-range-track{
+    height:8px; border:1px solid var(--rule);
+    background:linear-gradient(to right, var(--signal) 0 var(--fill,0%), var(--panel-2) var(--fill,0%) 100%);
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none; width:12px; height:22px;
+    margin-top:-8px; background:var(--ink); border:none;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:12px; height:22px; border-radius:0; background:var(--ink); border:none;
+  }
+  input[type=range]:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 3px rgba(13,25,32,.28)}
+  input[type=range]:focus-visible::-moz-range-thumb{box-shadow:0 0 0 3px rgba(13,25,32,.28)}
+  input[type=range]:focus{outline:none}
+  .load-mark{
+    position:absolute; top:1px; width:2px; height:22px; background:var(--ink);
+    pointer-events:none; display:none;
+  }
+  .load-mark::after{
+    content:attr(data-label); position:absolute; left:50%; top:-13px;
+    transform:translateX(-50%); font-family:var(--mono); font-size:9px;
+    letter-spacing:.06em; color:var(--ink); white-space:nowrap;
+  }
+  .scale{
+    display:flex; justify-content:space-between;
+    font-family:var(--mono); font-size:10px; color:var(--ink-soft);
+  }
+
+  /* ---- footer --------------------------------------------------------- */
+  footer{padding:12px 16px; background:var(--panel-2); border-top:1px solid var(--rule)}
+  .readout{display:flex; gap:18px; flex-wrap:wrap; margin-bottom:8px}
+  .readout div{display:flex; flex-direction:column; gap:2px}
+  .readout .field-label{letter-spacing:.1em}
+  .readout .value{font-size:15px}
+  .curtailed{color:var(--alarm); font-weight:700}
+  .keys{margin:0; font-size:11px; color:var(--ink-soft); line-height:1.5}
+  kbd{
+    font-family:var(--mono); font-size:10px; background:var(--panel);
+    border:1px solid var(--rule); padding:1px 4px;
+  }
+  @media (prefers-reduced-motion:reduce){ .vane{transition:none} }
+</style>
+</head>
+<body>
+<main class="console">
+  <div class="mast">
+    <h1>Environment</h1>
+    <span class="link" id="link"><span class="dot"></span><span id="linkText">connecting</span></span>
+  </div>
+
+  <section class="rose">
+    <div class="rose-head">
+      <span class="field-label" id="dirLabel">Wind direction</span>
+      <span class="value"><span id="dirValue">&mdash;</span><span class="unit">&deg;</span>
+        <span class="unit" id="dirCardinal"></span></span>
+    </div>
+
+    <svg class="dial" id="dial" viewBox="0 0 240 240" role="slider" tabindex="0"
+         aria-label="Wind direction in degrees" aria-valuemin="0" aria-valuemax="359"
+         aria-valuenow="0" aria-orientation="horizontal">
+      <circle class="bezel" cx="120" cy="120" r="98"></circle>
+      <g id="ticks"></g>
+      <text class="card n" x="120" y="34">N</text>
+      <text class="card" x="206" y="120">E</text>
+      <text class="card" x="120" y="206">S</text>
+      <text class="card" x="34" y="120">W</text>
+      <g class="vane" id="vane">
+        <polygon class="flag" points="120,30 133,54 107,54"></polygon>
+        <line class="shaft" x1="120" y1="54" x2="120" y2="184"></line>
+        <polygon class="head" points="120,196 113,178 127,178"></polygon>
+      </g>
+      <circle class="hub" cx="120" cy="120" r="7"></circle>
+    </svg>
+
+    <p class="hint" id="dirHint"></p>
+  </section>
+
+  <div id="sliders"></div>
+
+  <footer>
+    <div class="readout" id="readout" hidden>
+      <div><span class="field-label">Farm output</span><span class="value" id="tPower">&mdash;</span></div>
+      <div><span class="field-label">Energy</span><span class="value" id="tEnergy">&mdash;</span></div>
+      <div><span class="field-label">Spinning</span><span class="value" id="tSpinning">&mdash;</span></div>
+      <div><span class="field-label">Grid</span><span class="value" id="tState">&mdash;</span></div>
+    </div>
+    <p class="keys">The viewer keeps its keys: <kbd>S</kbd> speed, <kbd>D</kbd> direction,
+      <kbd>T</kbd> temperature, <kbd>G</kbd> grid limit, then <kbd>&uarr;</kbd> <kbd>&darr;</kbd>.
+      Changes made there appear here. Drag the vane, or focus it and use
+      <kbd>&larr;</kbd> <kbd>&rarr;</kbd>; hold <kbd>Shift</kbd> to snap to 15&deg;.</p>
+  </footer>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  var POLL_MS = 200;      // how often the panel re-reads the simulation state
+  var SEND_MS = 60;       // outgoing rate limit while dragging
+  var fields = {};        // description fetched from /fields
+  var values = {};        // last values shown
+  var version = -1;       // state version we have already applied
+  var editing = null;     // field the user is holding right now
+  var editingUntil = 0;   // grace period after release, so polling cannot snap back
+  var pending = {};       // queued changes
+  var sendTimer = null;
+  var el = {};            // per-field DOM handles
+
+  var POINTS = ["N","NNE","NE","ENE","E","ESE","SE","SSE",
+                "S","SSW","SW","WSW","W","WNW","NW","NNW"];
+
+  function $(id) { return document.getElementById(id); }
+  function cardinal(deg) { return POINTS[Math.round(deg / 22.5) % 16]; }
+  function fmt(v, spec) { return Number(v).toFixed(spec.decimals); }
+  function pct(v, spec) { return (v - spec.min) / (spec.max - spec.min) * 100; }
+  function busy(key) { return editing === key || (editing === null && Date.now() < editingUntil && lastEdited === key); }
+
+  var lastEdited = null;
+
+  /* ---- talking to the simulation ------------------------------------- */
+
+  function send(key, value) {
+    pending[key] = value;
+    lastEdited = key;
+    if (sendTimer) { return; }
+    sendTimer = setTimeout(function () {
+      var body = pending; pending = {}; sendTimer = null;
+      fetch("/state", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body)
+      }).then(function (r) { return r.json(); })
+        .then(function (state) { version = state.version; apply(state, true); })
+        .catch(function () { setLink("lost", "no connection"); });
+    }, SEND_MS);
+  }
+
+  function poll() {
+    fetch("/state").then(function (r) { return r.json(); }).then(function (state) {
+      setLink("live", "connected \u00b7 " + state.source);
+      if (state.version !== version) { version = state.version; apply(state, false); }
+      telemetry(state.telemetry || {});
+    }).catch(function () {
+      setLink("lost", "no connection");
+    });
+  }
+
+  function setLink(cls, text) {
+    $("link").className = "link " + cls;
+    $("linkText").textContent = text;
+  }
+
+  /* ---- rendering ------------------------------------------------------ */
+
+  function apply(state, ownChange) {
+    Object.keys(fields).forEach(function (key) {
+      if (!(key in state)) { return; }
+      if (!ownChange && busy(key)) { return; }   // do not fight the user's hand
+      values[key] = state[key];
+      draw(key, state[key]);
+    });
+  }
+
+  function draw(key, value) {
+    var spec = fields[key];
+    if (spec.control === "compass") {
+      $("vane").style.transform = "rotate(" + value + "deg)";
+      $("dirValue").textContent = fmt(value, spec);
+      $("dirCardinal").textContent = cardinal(value);
+      $("dial").setAttribute("aria-valuenow", Math.round(value));
+      $("dial").setAttribute("aria-valuetext", Math.round(value) + " degrees, " + cardinal(value));
+      return;
+    }
+    var f = el[key];
+    if (Number(f.input.value) !== value) { f.input.value = value; }
+    f.input.style.setProperty("--fill", pct(value, spec).toFixed(1) + "%");
+    f.value.textContent = fmt(value, spec);
+  }
+
+  function telemetry(t) {
+    var has = Object.keys(t).length > 0;
+    $("readout").hidden = !has;
+    if (!has) { return; }
+    if ("power" in t) {
+      $("tPower").textContent = Number(t.power).toFixed(1) + " MW";
+      var g = el.grid_limit;
+      if (g) {
+        var p = Math.max(0, Math.min(100, pct(Number(t.power), fields.grid_limit)));
+        g.mark.style.display = "block";
+        g.mark.style.left = "calc(" + p + "% + " + (6 - p * 0.12) + "px)";
+        g.mark.setAttribute("data-label", Number(t.power).toFixed(1));
+      }
+    }
+    $("tEnergy").textContent = ("energy" in t) ? Number(t.energy).toFixed(2) + " kWh" : "\u2014";
+    $("tSpinning").textContent = ("spinning" in t) ? String(t.spinning) : "\u2014";
+    var cut = !!t.curtailed;
+    $("tState").textContent = cut ? "curtailed" : "absorbing";
+    $("tState").className = "value" + (cut ? " curtailed" : "");
+  }
+
+  /* ---- compass -------------------------------------------------------- */
+
+  function buildTicks() {
+    var g = $("ticks"), svgns = "http://www.w3.org/2000/svg";
+    for (var deg = 0; deg < 360; deg += 10) {
+      var major = deg % 30 === 0;
+      var rad = (deg - 90) * Math.PI / 180;
+      var r1 = major ? 84 : 90, r2 = 97;
+      var line = document.createElementNS(svgns, "line");
+      line.setAttribute("x1", 120 + r1 * Math.cos(rad));
+      line.setAttribute("y1", 120 + r1 * Math.sin(rad));
+      line.setAttribute("x2", 120 + r2 * Math.cos(rad));
+      line.setAttribute("y2", 120 + r2 * Math.sin(rad));
+      line.setAttribute("class", "tick" + (major ? " major" : ""));
+      g.appendChild(line);
+    }
+  }
+
+  function angleAt(evt) {
+    var box = $("dial").getBoundingClientRect();
+    var dx = evt.clientX - (box.left + box.width / 2);
+    var dy = evt.clientY - (box.top + box.height / 2);
+    var deg = Math.atan2(dx, -dy) * 180 / Math.PI;
+    if (deg < 0) { deg += 360; }
+    return evt.shiftKey ? Math.round(deg / 15) * 15 % 360 : Math.round(deg);
+  }
+
+  function setDirection(deg) {
+    deg = ((deg % 360) + 360) % 360;
+    values.wind_direction = deg;
+    draw("wind_direction", deg);
+    send("wind_direction", deg);
+  }
+
+  function wireCompass() {
+    var dial = $("dial");
+    dial.addEventListener("pointerdown", function (e) {
+      e.preventDefault();
+      editing = "wind_direction"; lastEdited = "wind_direction";
+      dial.setPointerCapture(e.pointerId);
+      setDirection(angleAt(e));
+    });
+    dial.addEventListener("pointermove", function (e) {
+      if (editing === "wind_direction") { setDirection(angleAt(e)); }
+    });
+    ["pointerup", "pointercancel"].forEach(function (type) {
+      dial.addEventListener(type, function () {
+        editing = null; editingUntil = Date.now() + 400;
+      });
+    });
+    dial.addEventListener("keydown", function (e) {
+      var step = e.shiftKey ? 15 : 1, d = 0;
+      if (e.key === "ArrowRight" || e.key === "ArrowUp") { d = step; }
+      else if (e.key === "ArrowLeft" || e.key === "ArrowDown") { d = -step; }
+      else { return; }
+      e.preventDefault();
+      lastEdited = "wind_direction"; editingUntil = Date.now() + 400;
+      setDirection((values.wind_direction || 0) + d);
+    });
+  }
+
+  /* ---- sliders -------------------------------------------------------- */
+
+  function buildSlider(key, spec) {
+    var row = document.createElement("section");
+    row.className = "row";
+    row.innerHTML =
+      '<div class="row-head"><span class="field-label"></span>' +
+      '<span class="value"><span class="num">\u2014</span>' +
+      '<span class="unit"></span></span></div>' +
+      '<div class="track-wrap"><input type="range"><span class="load-mark"></span></div>' +
+      '<div class="scale"><span class="lo"></span><span class="hi"></span></div>' +
+      '<p class="hint"></p>';
+
+    var input = row.querySelector("input");
+    input.min = spec.min; input.max = spec.max; input.step = spec.step;
+    input.id = "in_" + key;
+    row.querySelector(".field-label").textContent = spec.label;
+    row.querySelector(".field-label").setAttribute("for", input.id);
+    row.querySelector(".unit").textContent = " " + spec.unit;
+    row.querySelector(".lo").textContent = spec.min + " " + spec.unit;
+    row.querySelector(".hi").textContent = spec.max + " " + spec.unit;
+    row.querySelector(".hint").textContent = spec.hint || "";
+
+    input.addEventListener("pointerdown", function () { editing = key; lastEdited = key; });
+    input.addEventListener("focus", function () { lastEdited = key; });
+    input.addEventListener("input", function () {
+      lastEdited = key; editingUntil = Date.now() + 400;
+      var v = Number(input.value);
+      values[key] = v; draw(key, v); send(key, v);
+    });
+    ["pointerup", "pointercancel", "blur"].forEach(function (type) {
+      input.addEventListener(type, function () { editing = null; editingUntil = Date.now() + 400; });
+    });
+
+    el[key] = {input: input, value: row.querySelector(".num"), mark: row.querySelector(".load-mark")};
+    $("sliders").appendChild(row);
+  }
+
+  /* ---- start ---------------------------------------------------------- */
+
+  buildTicks();
+  wireCompass();
+
+  fetch("/fields").then(function (r) { return r.json(); }).then(function (spec) {
+    fields = spec;
+    Object.keys(fields).forEach(function (key) {
+      var f = fields[key];
+      if (f.control === "compass") {
+        $("dirLabel").textContent = f.label;
+        $("dirHint").textContent = f.hint || "";
+        $("dial").setAttribute("aria-valuemax", f.max - 1);
+      } else {
+        buildSlider(key, f);
+      }
+    });
+    poll();
+    setInterval(poll, POLL_MS);
+  }).catch(function () {
+    setLink("lost", "cannot reach the simulation");
+  });
+}());
+</script>
+</body>
+</html>
