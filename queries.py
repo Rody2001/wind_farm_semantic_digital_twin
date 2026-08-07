@@ -27,7 +27,6 @@ import time
 
 from history_file import clear_history, load_history, DEFAULT_HISTORY_FILE
 from main1 import main
-from peak_state_file import clear_peak_state
 
 from semantic_annotations import (
     GeneratedEnergy, GeneratedPower, NacelleYaw, RotorSpeed,
@@ -366,8 +365,8 @@ time.sleep(5)   # let the 20 Hz timer step the driver and fill the annotations
 # print(peak_power_report(driver))
 
 # History queries -- the recorded run, not the live world
-print(spinning_intervals("Farm_East_tall"))
-print(was_spinning_at("Farm_East_tall", 40.0))
-print(was_spinning_at("Farm_East_tall", 70.0))
-print(highest_wind_speed())
-print(wind_speed_for_power(143.0))
+# print(spinning_intervals("Farm_East_tall"))
+# print(was_spinning_at("Farm_East_tall", 40.0))
+# print(was_spinning_at("Farm_East_tall", 70.0))
+# print(highest_wind_speed())
+# print(wind_speed_for_power(43.0))

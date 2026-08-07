@@ -17,6 +17,9 @@ Topics (std_msgs/Float64), one per turbine plus farm totals:
     /wind_farm/total_energy_kwh
     /wind_farm/temperature_c          current air temperature (deg C)
     /wind_farm/rho                    current air density (kg/m^3), from temperature_c
+    /wind_farm/wind_speed             current wind speed (m/s)
+    /wind_farm/wind_direction_deg     bearing the wind comes FROM (0=N, 90=E, 180=S, 270=W)
+    /wind_farm/grid_limit_mw          current grid upper limit (MW)
 
 Browser control panel:
     --ui               serve control_panel.html and open it in a browser; the sliders and
@@ -54,12 +57,14 @@ of snapping there instantly.
 """
 
 import argparse
+import os
 import time
 from datetime import datetime
 import numpy as np
 import mujoco
 
 import turbine_formulas as formulas  # pure cut-in + RPM + power formulas (no framework)
+from peak_state_file import clear_peak_state
 from wind_state_file import write_wind_state  # shares live wind with main1.py's semantic world
 
 try:
@@ -68,7 +73,7 @@ try:
 except Exception:  # noqa: BLE001
     _HISTORY_OK = False
 
-from control_server import EnvironmentState, start_control_server
+from control_server import EnvironmentState, start_control_server, set_field_range
 
 RHO = formulas.RHO   # air density [kg/m^3]
 CD  = 1.28           # flat-plate drag coeff  (aero mode only)
@@ -344,10 +349,10 @@ class RosPublisher:
             self.cp_pubs[n]     = self.node.create_publisher(Float64, f"/wind_farm/{base}/cp", 10)
         self.total_power_pub  = self.node.create_publisher(Float64, "/wind_farm/total_power_w", 10)
         self.total_energy_pub = self.node.create_publisher(Float64, "/wind_farm/total_energy_kwh", 10)
-        self.wind_speed_pub   = self.node.create_publisher(Float64, "/wind_farm/wind_speed_m_s", 10)
-        self.wind_direction_pub = self.node.create_publisher(Float64, "/wind_farm/wind_direction_deg", 10)
         self.temperature_pub  = self.node.create_publisher(Float64, "/wind_farm/temperature_c", 10)
         self.rho_pub          = self.node.create_publisher(Float64, "/wind_farm/rho", 10)
+        self.wind_speed_pub   = self.node.create_publisher(Float64, "/wind_farm/wind_speed", 10)
+        self.wind_dir_pub     = self.node.create_publisher(Float64, "/wind_farm/wind_direction_deg", 10)
         self.grid_limit_pub   = self.node.create_publisher(Float64, "/wind_farm/grid_limit_mw", 10)
 
     def publish(self, driver):
@@ -360,17 +365,17 @@ class RosPublisher:
         self.total_power_pub.publish(F(data=float(driver.last_total_power)))
         self.total_energy_pub.publish(F(data=float(driver.total_energy_wh / 1000.0)))
         temp_c = getattr(driver, "temp_c", None)
-        wind_speed = getattr(driver, "wind_speed", None)
-        wind_direction = getattr(driver, "wind_direction", None)
-        if wind_speed is not None:
-            self.wind_speed_pub.publish(F(data=float(wind_speed)))
-        if wind_direction is not None:
-            self.wind_direction_pub.publish(F(data=float(wind_direction)))
         if temp_c is not None:
             self.temperature_pub.publish(F(data=float(temp_c)))
         rho = getattr(driver, "rho", None)
         if rho is not None:
             self.rho_pub.publish(F(data=float(rho)))
+        wind_speed = getattr(driver, "wind_speed", None)
+        if wind_speed is not None:
+            self.wind_speed_pub.publish(F(data=float(wind_speed)))
+        wind_direction = getattr(driver, "wind_direction", None)
+        if wind_direction is not None:
+            self.wind_dir_pub.publish(F(data=float(wind_direction)))
         self._rclpy.spin_once(self.node, timeout_sec=0.0)
         grid_limit_w = getattr(driver, "grid_limit_w", None)
         if grid_limit_w is not None:
@@ -430,6 +435,19 @@ DEFAULT_GRIDLIMIT_MW = 500.0  # default grid limit in MW
 DEFAULT_TEMP_C = 15.0   # matches RHO = 1.225 kg/m^3 (ENERCON's "Standardluftdichte")
 
 
+def ui_requested(args):
+    """True for --ui, or for WIND_TURBINE_UI=1 in the environment.
+
+    The environment variable exists because the simulation is not always started
+    directly: wind_farm_export.py --launch builds the MJCF and then starts this
+    script, and it does not know about --ui. A child process inherits the
+    environment, so exporting the variable switches the panel on either way.
+    """
+    if getattr(args, "ui", False):
+        return True
+    return os.environ.get("WIND_TURBINE_UI", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def apply_environment(e, state, driver, announce=True):
     """Push one EnvironmentState snapshot into the driver and the semantic world.
 
@@ -445,6 +463,7 @@ def apply_environment(e, state, driver, announce=True):
     if e["wind_speed"] != state.get("speed") or e["wind_direction"] != state.get("direction"):
         state["speed"] = e["wind_speed"]
         state["direction"] = e["wind_direction"]
+        # stashed on the driver so RosPublisher can read it, same as temp_c below
         driver.wind_speed = state["speed"]
         driver.wind_direction = state["direction"]
         write_wind_state(state["speed"], state["direction"])   # tell the semantic world
@@ -677,9 +696,15 @@ def main():
                          "press 't' then Up/Down arrows.")
     ap.add_argument("--ui", action="store_true",
                     help="serve the browser control panel (sliders for wind speed, temperature "
-                         "and grid limit, compass for wind direction) and open it")
-    ap.add_argument("--ui-port", type=int, default=8080,
-                    help="port for the --ui control panel (default 8080)")
+                         "and grid limit, compass for wind direction) and open it. Can also be "
+                         "switched on with WIND_TURBINE_UI=1, which is what wind_farm_export.py "
+                         "--launch passes through.")
+    ap.add_argument("--ui-port", type=int, default=int(os.environ.get("WIND_TURBINE_UI_PORT", 8080)),
+                    help="port for the control panel (default 8080, or WIND_TURBINE_UI_PORT)")
+    ap.add_argument("--grid-limit-max", type=float, default=1000.0,
+                    help="upper end of the grid-limit range in MW (default 1000). Raised "
+                         "automatically if --gridLimit is larger, so the value passed is "
+                         "never clamped away.")
     ap.add_argument("--time", type=float, default=None,
                     help="run for N seconds then close automatically, logging history at 1 Hz")
     ap.add_argument("--history-file", default="history.jsonl",
@@ -718,6 +743,11 @@ def main():
             for name, *_ in driver.rotors:
                 print(f"    {name:28s} {'RUN ' if name in running else 'idle'}")
 
+    # Widen the grid-limit range BEFORE building the state, otherwise a --gridLimit
+    # above the range maximum would be clamped away without a word.
+    limit_max = max(args.grid_limit_max, args.gridLimit or 0.0, DEFAULT_GRIDLIMIT_MW)
+    set_field_range("grid_limit", maximum=limit_max, step=max(1.0, round(limit_max / 100.0)))
+
     # One shared environment for the viewer keys and the browser panel.
     env = EnvironmentState(
         wind_speed=args.wind,
@@ -725,8 +755,9 @@ def main():
         temperature=args.temp,
         grid_limit=args.gridLimit if args.gridLimit is not None else DEFAULT_GRIDLIMIT_MW,
     )
-    if args.ui:
+    if ui_requested(args):
         start_control_server(env, port=args.ui_port, open_browser=True)
+    clear_peak_state()
 
     publisher = None
     if args.publish:

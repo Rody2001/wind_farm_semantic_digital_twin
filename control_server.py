@@ -60,7 +60,7 @@ FIELDS: Dict[str, Dict[str, Any]] = {
         "hint": "Meteorological: direction the wind comes from, 0\u00b0 = north",
     },
     "temperature": {
-        "label": "Temperature",
+        "label": "Air temperature",
         "unit": "\u00b0C",
         "control": "slider",
         "min": -30.0, "max": 50.0, "step": 1.0, "decimals": 1,
@@ -74,6 +74,28 @@ FIELDS: Dict[str, Dict[str, Any]] = {
         "hint": "Turbines are curtailed so the total stays under this value",
     },
 }
+
+
+def set_field_range(key: str, minimum: float = None, maximum: float = None,
+                    step: float = None, decimals: int = None) -> Dict[str, Any]:
+    """Change a control's range before the panel is served.
+
+    EnvironmentState clamps to these numbers, so a value outside the range is not
+    just un-draggable in the browser, it cannot be held at all. Widen the range
+    first if the simulation needs a bigger one -- e.g. a grid limit above the
+    default 1000 MW. The browser reads the range from /fields at page load, so
+    nothing in the HTML needs changing.
+    """
+    spec = FIELDS[key]
+    if minimum is not None:
+        spec["min"] = float(minimum)
+    if maximum is not None:
+        spec["max"] = float(maximum)
+    if step is not None:
+        spec["step"] = float(step)
+    if decimals is not None:
+        spec["decimals"] = int(decimals)
+    return spec
 
 
 class EnvironmentState:

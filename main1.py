@@ -9,7 +9,6 @@ from time import sleep
 import numpy as np
 import rclpy
 
-from peak_state_file import clear_peak_state
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import VizMarkerPublisher
 
 from semantic_annotations import Tower, Nacelle, RotorBlades, Hub, TowerBase
@@ -34,7 +33,6 @@ from ros_turbine_subscriber import RosTurbineSubscriber
 from semantic_environment import EnvironmentAnnotations, annotate_turbines
 
 
-clear_peak_state()
 @dataclass
 class WindTurbine(ActiveConnection1DOF, HasUpdateState):
     rotor_dof: DegreeOfFreedom = field(default=None, kw_only=True)
