@@ -40,54 +40,6 @@ DEFAULT_TEMP_C = 15.0          # matches rho = 1.225 kg/m^3, same default as the
 
 
 # ------------------------------------------------------------------ #
-# finding annotations in the world -- this is what every query uses
-# ------------------------------------------------------------------ #
-def world_of(source):
-    """Accept either the World itself or the driver that owns it.
-
-    Lets a query be called as query(world, ...) or query(driver, ...) -- the
-    numbers come out of the world either way.
-    """
-    if hasattr(source, "semantic_annotations"):
-        return source
-    world = getattr(source, "world", None)
-    if world is None:
-        raise TypeError(f"expected a World or a driver with .world, "
-                        f"got {type(source).__name__}")
-    return world
-
-
-def iter_annotations(source) -> Iterable:
-    """Yield every semantic annotation in the world, whatever container it uses."""
-    anns = world_of(source).semantic_annotations
-    if isinstance(anns, dict):
-        return anns.values()
-    return anns
-
-
-def find_annotation(source, cls, turbine: str = None):
-    """The annotation of type `cls` (for `turbine`, if given), or None."""
-    for ann in iter_annotations(source):
-        if not isinstance(ann, cls):
-            continue
-        if turbine is not None and getattr(ann, "turbine", None) != turbine:
-            continue
-        return ann
-    return None
-
-
-def find_annotations(source, cls) -> List:
-    """Every annotation of type `cls`, e.g. the RotorSpeed of every turbine."""
-    return [a for a in iter_annotations(source) if isinstance(a, cls)]
-
-
-def scalar(source, cls, turbine: str = None, default: float = 0.0) -> float:
-    """Read one measured annotation's value out of the world."""
-    ann = find_annotation(source, cls, turbine)
-    return default if ann is None else float(ann.value)
-
-
-# ------------------------------------------------------------------ #
 # per-turbine annotations
 # ------------------------------------------------------------------ #
 def annotate_turbines(world, turbine_runtimes: Dict) -> Dict[str, Dict]:

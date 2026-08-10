@@ -32,7 +32,6 @@ from semantic_annotations import (
     GeneratedEnergy, GeneratedPower, NacelleYaw, RotorSpeed,
     Temperature, WindDirection, WindSpeed,
 )
-from semantic_environment import find_annotation, find_annotations, scalar, world_of
 
 try:
     from semantic_digital_twin.world_description.world_entity import SemanticAnnotation
@@ -45,17 +44,16 @@ except Exception:  # noqa: BLE001
 # ------------------------------------------------------------------ #
 def wind_speed(source) -> float:
     """Current wind speed [m/s], from the world's WindSpeed annotation."""
-    return scalar(source, WindSpeed)
-
+    return source.get_semantic_annotations_by_type(WindSpeed)[0].value
 
 def wind_direction(source) -> float:
     """Compass bearing the wind comes FROM [deg], from the WindDirection annotation."""
-    return scalar(source, WindDirection)
+    return source.get_semantic_annotations_by_type(WindDirection)[0].value
 
 
 def temperature(source) -> float:
     """Current air temperature [deg C], from the Temperature annotation."""
-    return scalar(source, Temperature, default=15.0)
+    return source.get_semantic_annotations_by_type(Temperature)[0].value
 
 
 def environment(source) -> dict:
@@ -69,15 +67,16 @@ def environment(source) -> dict:
 
 def is_environment_live(source, max_age_s: float = 2.0) -> bool:
     """Is the world still being updated, or are these numbers stale?"""
-    ann = find_annotation(source, WindSpeed)
+    ann = source.get_semantic_annotations_by_type(WindSpeed)[0]
     return ann is not None and ann.is_fresh(max_age_s)
 
 
 def annotation_report(source) -> str:
     """One line per measured annotation -- handy for a screenshot in the thesis."""
-    lines = [f"  {find_annotation(source, cls)}"
+    lines = [f"  {source.get_semantic_annotations_by_type(cls)[0]}"
              for cls in (WindSpeed, WindDirection, Temperature)]
-    for ann in find_annotations(source, RotorSpeed):
+    all_rotor_speeds = source.get_semantic_annotations_by_type(RotorSpeed)
+    for ann in all_rotor_speeds:
         lines.append(f"  {ann}")
     return "\n".join(lines)
 
@@ -87,27 +86,43 @@ def annotation_report(source) -> str:
 # ------------------------------------------------------------------ #
 def turbine_names(source) -> list:
     """Every turbine that has a RotorSpeed annotation in the world."""
-    return [a.turbine for a in find_annotations(source, RotorSpeed)]
+    all_rotor_speeds = source.get_semantic_annotations_by_type(RotorSpeed)
+    return [a.turbine for a in all_rotor_speeds]
 
 
 def turbine_rpm(source, name: str) -> float:
     """Rotor speed [rpm] of turbine `name`, from the RotorSpeed on its hub."""
-    return scalar(source, RotorSpeed, name)
-
+    # return scalar(source, RotorSpeed, name)
+    all_rotor_speeds = source.get_semantic_annotations_by_type(RotorSpeed)
+    for rpm in all_rotor_speeds:
+        if rpm.turbine == name:
+            return rpm.value
 
 def turbine_power(source, name: str) -> float:
     """Generated power [W] of turbine `name`, from its GeneratedPower annotation."""
-    return scalar(source, GeneratedPower, name)
+    # return scalar(source, GeneratedPower, name)
+    all_turbine_powers = source.get_semantic_annotations_by_type(GeneratedPower)
+    for power in all_turbine_powers:
+        if power.turbine == name:
+            return power.value
 
 
 def turbine_energy(source, name: str) -> float:
     """Energy generated so far [kWh] by turbine `name`."""
-    return scalar(source, GeneratedEnergy, name)
+    # return scalar(source, GeneratedEnergy, name)
+    all_turbine_energies = source.get_semantic_annotations_by_type(GeneratedEnergy)
+    for energy in all_turbine_energies:
+        if energy.turbine == name:
+            return energy.value
 
 
 def turbine_nacelle_yaw_deg(source, name: str) -> float:
     """Nacelle yaw angle [deg] of turbine `name`, from the NacelleYaw on its nacelle."""
-    return scalar(source, NacelleYaw, name)
+    # return scalar(source, NacelleYaw, name)
+    all_turbine_yaws = source.get_semantic_annotations_by_type(NacelleYaw)
+    for yaw in all_turbine_yaws:
+        if yaw.turbine == name:
+            return yaw.value
 
 
 def is_turbine_spinning(source, name: str, eps: float = 0.05) -> bool:
@@ -117,8 +132,11 @@ def is_turbine_spinning(source, name: str, eps: float = 0.05) -> bool:
 
 def turbine_body(source, name: str):
     """The Body the turbine's rotor speed is attached to -- its hub."""
-    ann = find_annotation(source, RotorSpeed, name)
-    return None if ann is None else ann.root
+    ann1 = [
+        a for a in source.get_semantic_annotations_by_type(RotorSpeed)
+        if a.turbine == name
+    ]
+    return None if ann1[0] is None else ann1[0].root
 
 
 def turbine_status(source, name: str = None) -> dict:
@@ -141,27 +159,27 @@ def turbine_status(source, name: str = None) -> dict:
 
 def total_power(source) -> float:
     """Total generated power [W] across the whole farm right now."""
-    return sum(a.value for a in find_annotations(source, GeneratedPower))
+    return sum(a.value for a in source.get_semantic_annotations_by_type(GeneratedPower))
 
 
 def total_energy(source) -> float:
     """Total energy [kWh] generated across the farm since the run started."""
-    return sum(a.value for a in find_annotations(source, GeneratedEnergy))
+    return sum(a.value for a in source.get_semantic_annotations_by_type(GeneratedEnergy))
 
 
 def spinning_turbines(source, eps: float = 0.05) -> list:
     """Names of every turbine currently turning."""
-    return [a.turbine for a in find_annotations(source, RotorSpeed) if abs(a.value) > eps]
+    return [a.turbine for a in source.get_semantic_annotations_by_type(RotorSpeed) if abs(a.value) > eps]
 
 
 def idle_turbines(source, eps: float = 0.05) -> list:
     """Names of every turbine standing still: below cut-in, or not facing the wind."""
-    return [a.turbine for a in find_annotations(source, RotorSpeed) if abs(a.value) <= eps]
+    return [a.turbine for a in source.get_semantic_annotations_by_type(RotorSpeed) if abs(a.value) <= eps]
 
 
 def fastest_turbine(source) -> (str, float):
     """Name and RPM of the turbine with the fastest rotor speed."""
-    anns = find_annotations(source, RotorSpeed)
+    anns = source.get_semantic_annotations_by_type(RotorSpeed)
     if not anns:
         return (None, 0.0)
     a = max(anns, key=lambda a: a.value)
@@ -170,7 +188,7 @@ def fastest_turbine(source) -> (str, float):
 
 def slowest_turbine(source) -> (str, float):
     """Name and RPM of the turbine with the slowest rotor speed."""
-    anns = find_annotations(source, RotorSpeed)
+    anns = source.get_semantic_annotations_by_type(RotorSpeed)
     if not anns:
         return (None, 0.0)
     a = min(anns, key=lambda a: a.value)
@@ -179,7 +197,7 @@ def slowest_turbine(source) -> (str, float):
 
 def slowest_moving_turbine(source) -> (str, float):
     """Name and RPM of the moving turbine with the slowest rotor speed."""
-    moving = [a for a in find_annotations(source, RotorSpeed) if abs(a.value) > 1e-9]
+    moving = [a for a in source.get_semantic_annotations_by_type(RotorSpeed) if abs(a.value) > 1e-9]
     if not moving:
         return (None, 0.0)
     a = min(moving, key=lambda a: abs(a.value))
@@ -188,7 +206,7 @@ def slowest_moving_turbine(source) -> (str, float):
 
 def most_powerful_turbine(source) -> (str, float):
     """Name and generated power [W] of the turbine producing the most."""
-    generating = [a for a in find_annotations(source, GeneratedPower) if a.value > 0]
+    generating = [a for a in source.get_semantic_annotations_by_type(GeneratedPower) if a.value > 0]
     if not generating:
         return (None, 0.0)
     a = max(generating, key=lambda a: a.value)
@@ -197,7 +215,7 @@ def most_powerful_turbine(source) -> (str, float):
 
 def least_powerful_turbine(source) -> (str, float):
     """Name and generated power [W] of the turbine producing the least."""
-    anns = find_annotations(source, GeneratedPower)
+    anns = source.get_semantic_annotations_by_type(GeneratedPower)
     if not anns:
         return (None, 0.0)
     a = min(anns, key=lambda a: a.value)
@@ -206,9 +224,9 @@ def least_powerful_turbine(source) -> (str, float):
 
 def least_powerful_moving_turbine(source) -> (str, float):
     """Name and generated power [W] of the moving turbine producing the least."""
-    moving = {a.turbine for a in find_annotations(source, RotorSpeed)
+    moving = {a.turbine for a in source.get_semantic_annotations_by_type(RotorSpeed)
               if abs(a.value) > 1e-9}
-    generating = [a for a in find_annotations(source, GeneratedPower)
+    generating = [a for a in source.get_semantic_annotations_by_type(GeneratedPower)
                   if a.turbine in moving]
     if not generating:
         return (None, 0.0)
@@ -370,3 +388,13 @@ time.sleep(5)   # let the 20 Hz timer step the driver and fill the annotations
 # print(was_spinning_at("Farm_East_tall", 70.0))
 # print(highest_wind_speed())
 # print(wind_speed_for_power(43.0))
+
+
+print(annotation_report(world))
+
+print(world.get_semantic_annotations_by_type(RotorSpeed))
+
+for name in world.get_semantic_annotations_by_type(RotorSpeed):
+    if name.turbine == "Farm_East_2":
+        print(name.turbine, name.value)
+
