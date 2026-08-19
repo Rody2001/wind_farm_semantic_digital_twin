@@ -13,27 +13,6 @@ MuJoCo world behave identically for the same wind input.
 
 No MuJoCo import here -- this module only touches semantic_digital_twin
 objects.
-
-IMPORTANT, learned the hard way: in this fork, WorldState is keyed by
-dof.id (a UUID) -- NOT dof.name (a PrefixedName). An earlier version of
-this file used .name as the key, which always raised
-DofNotInWorldStateError (a PrefixedName is never a valid key in a
-UUID-indexed dict), and a "repair" that called
-world.state.add_degree_of_freedom(dof) again made things worse: that
-method also calls dof.create_variables(), replacing dof.variables.position
-with a brand-new object -- but RevoluteConnection.add_to_world() had
-already baked the *original* PositionVariable object into a cached
-symbolic expression when the connection was first built. That mismatch
-between the compiled expression and the compiled parameter list is what
-produced HasFreeVariablesError. There was never anything actually missing
-from world.state.
-
-The fix: use dof.id as the key, and never call create_variables() again --
-the DOF is already correctly registered the moment create_with_dofs() ran.
-world.state[dof_id].position/.velocity are plain numpy writes (no
-side effects), so we can batch-update every turbine and call
-world.notify_state_change() once at the end of step() -- the semantic-world
-equivalent of calling mj_forward() once at the end of QueryDriver.advance().
 ===================================================================
 """
 
@@ -127,9 +106,6 @@ class SemanticWindDriver:
         self.wind_speed = speed
         self.wind_direction_deg = direction_deg % 360.0
 
-    def get_wind(self) -> Tuple[float, float]:
-        """Return (speed [m/s], direction [deg]) currently set on this driver."""
-        return self.wind_speed, self.wind_direction_deg
 
     def step(self, dt: float) -> None:
         """Advance every turbine by dt seconds using the driver's current wind state."""
@@ -285,7 +261,3 @@ class SemanticWindDriver:
 # --------------------------------------------------------------------------- #
 def set_wind(driver: SemanticWindDriver, speed: float, direction_deg: float) -> None:
     driver.set_wind(speed, direction_deg)
-
-
-def get_wind(driver: SemanticWindDriver) -> Tuple[float, float]:
-    return driver.get_wind()

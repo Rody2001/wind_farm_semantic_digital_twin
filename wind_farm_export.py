@@ -25,6 +25,9 @@ class TurbineSpec:
 # ===================================================================
 # SINGLE SOURCE OF TRUTH
 # ===================================================================
+WIND_FARM_SINGLE: list[TurbineSpec] = [
+    TurbineSpec("1", tower_height=131.0, x=100, y=0,  z=0.1, rotor_blade_length=69),
+]
 WIND_FARM_East: list[TurbineSpec] = [
     TurbineSpec("1", tower_height=131.0, x=100, y=0,  z=0.1, rotor_blade_length=69.125),
     TurbineSpec("2", tower_height=131.0, x=150, y=50,  z=0.1, rotor_blade_length=69.125),
@@ -35,32 +38,32 @@ WIND_FARM_East: list[TurbineSpec] = [
 ]
 
 WIND_FARM_West: list[TurbineSpec] = [
-    TurbineSpec("1", tower_height=131.0, x=-100, y=0, z=0.1, yaw=math.pi, rotor_blade_length=69.125),
-    TurbineSpec("2", tower_height=131.0, x=-150, y=-50, z=0.1, yaw=math.pi, rotor_blade_length=69.125),
-    TurbineSpec("3", tower_height=131.0, x=-200, y=-100, z=0.1, yaw=math.pi, rotor_blade_length=69.125),
-    TurbineSpec("4", tower_height=131.0, x=-250, y=-150, z=0.1, yaw=math.pi, rotor_blade_length=69.125),
-    TurbineSpec("5", tower_height=131.0, x=-300, y=-200, z=0.1, yaw=math.pi, rotor_blade_length=69.125),
-    TurbineSpec("6", tower_height=131.0, x=-350, y=-250, z=0.1, yaw=math.pi, rotor_blade_length=69.125),
+    TurbineSpec("1", tower_height=81.0, x=-100, y=0, z=0.1, yaw=math.pi,),
+    TurbineSpec("2", tower_height=81.0, x=-150, y=-50, z=0.1, yaw=math.pi,),
+    TurbineSpec("3", tower_height=81.0, x=-200, y=-100, z=0.1, yaw=math.pi,),
+    # TurbineSpec("4", tower_height=131.0, x=-250, y=-150, z=0.1, yaw=math.pi, rotor_blade_length=69.125),
+    # TurbineSpec("5", tower_height=131.0, x=-300, y=-200, z=0.1, yaw=math.pi, rotor_blade_length=69.125),
+    # TurbineSpec("6", tower_height=131.0, x=-350, y=-250, z=0.1, yaw=math.pi, rotor_blade_length=69.125),
 ]
 WIND_FARM_North: list[TurbineSpec] = [
-    TurbineSpec("1", tower_height=131.0, x=0, y=100, z=0.1, yaw=math.pi/2, rotor_blade_length=69.125),
-    TurbineSpec("2", tower_height=131.0, x=-50, y=150, z=0.1, yaw=math.pi/2, rotor_blade_length=69.125),
-    TurbineSpec("3", tower_height=131.0, x=-100, y=200, z=0.1, yaw=math.pi/2, rotor_blade_length=69.125),
-    TurbineSpec("4", tower_height=131.0, x=-150, y=250, z=0.1, yaw=math.pi/2, rotor_blade_length=69.125),
-    TurbineSpec("5", tower_height=131.0, x=-200, y=300, z=0.1, yaw=math.pi/2, rotor_blade_length=69.125),
-    TurbineSpec("6", tower_height=131.0, x=-250, y=350, z=0.1, yaw=math.pi/2, rotor_blade_length=69.125),
+    TurbineSpec("1", tower_height=111.0, x=0, y=100, z=0.1, yaw=math.pi/2,),
+    TurbineSpec("2", tower_height=111.0, x=-50, y=150, z=0.1, yaw=math.pi/2,),
+    # TurbineSpec("3", tower_height=131.0, x=-100, y=200, z=0.1, yaw=math.pi/2, rotor_blade_length=69.125),
+    # TurbineSpec("4", tower_height=131.0, x=-150, y=250, z=0.1, yaw=math.pi/2, rotor_blade_length=69.125),
+    # TurbineSpec("5", tower_height=131.0, x=-200, y=300, z=0.1, yaw=math.pi/2, rotor_blade_length=69.125),
+    # TurbineSpec("6", tower_height=131.0, x=-250, y=350, z=0.1, yaw=math.pi/2, rotor_blade_length=69.125),
 ]
 WIND_FARM_South: list[TurbineSpec] = [
-    TurbineSpec("1", tower_height=131.0, x=0, y=-100, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69.125),
-    TurbineSpec("2", tower_height=131.0, x=50, y=-150, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69.125),
-    TurbineSpec("3", tower_height=131.0, x=100, y=-200, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69.125),
-    TurbineSpec("4", tower_height=131.0, x=150, y=-250, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69.125),
-    TurbineSpec("5", tower_height=131.0, x=200, y=-300, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69.125),
-    TurbineSpec("6", tower_height=131.0, x=250, y=-350, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69.125),
+    TurbineSpec("1", tower_height=160.0, x=0, y=-100, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69.125),
+    TurbineSpec("2", tower_height=160.0, x=50, y=-150, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69.125),
+    TurbineSpec("3", tower_height=160.0, x=100, y=-200, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69.125),
+    TurbineSpec("4", tower_height=160.0, x=150, y=-250, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69.125),
+    TurbineSpec("5", tower_height=160.0, x=200, y=-300, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69.125),
+    # TurbineSpec("6", tower_height=131.0, x=250, y=-350, z=0.1, yaw=3*math.pi/2, rotor_blade_length=69.125),
 ]
 
 WIND_FARM_Big: list[TurbineSpec] = [
-    TurbineSpec("tall", tower_height=300.0, x=0, y=0,  z=0.1, yaw=0.0),
+    TurbineSpec("1", tower_height=300.0, x=0, y=0,  z=0.1, yaw=0.0),
 ]
 
 # Every farm that should be exported / started together.
@@ -70,6 +73,7 @@ ALL_FARMS: dict[str, list[TurbineSpec]] = {
     "Farm_West": WIND_FARM_West,
     "Farm_South": WIND_FARM_South,
     "Farm_Big": WIND_FARM_Big,
+    # "Farm_Single": WIND_FARM_SINGLE,
 }
 
 

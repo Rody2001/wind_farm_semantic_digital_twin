@@ -414,9 +414,11 @@ def _write_history(driver, path, elapsed, wind_speed, direction_deg):
         "wind_speed": float(wind_speed),
         "wind_direction_deg": float(direction_deg),
         "total_power_w": float(getattr(driver, "last_total_power", 0.0)),
+        "total_energy_kwh": float(getattr(driver, "total_energy_wh", 0.0)) / 1000.0,
         "grid_limit_mw": float(limit_w / 1e6) if limit_w is not None else None,
         "rpm": {base(n): r[0] for n, r in driver.last_readings.items()},
         "power_w": {base(n): r[1] for n, r in driver.last_readings.items()},
+        "cp": {base(n): r[4] for n, r in driver.last_readings.items()},
     }
     try:
         append_sample(sample, path)
@@ -427,7 +429,7 @@ def _write_history(driver, path, elapsed, wind_speed, direction_deg):
 # =================================================================== #
 # SHARED ENVIRONMENT  (viewer keys + browser panel write into the same state)
 # =================================================================== #
-SPEED_STEP = 1.0    # m/s per arrow press
+SPEED_STEP = 0.5    # m/s per arrow press
 DIR_STEP = 5.0       # degrees per arrow press
 TEMP_STEP = 1.0      # deg C per arrow press
 GRIDLIMIT_STEP = 50.0  # MW per arrow press

@@ -77,6 +77,22 @@
   .row:last-child{border-bottom:none}
   .row-head{display:flex; align-items:baseline; justify-content:space-between; gap:8px}
   .row .value{font-size:19px}
+  .num{
+    font-family:var(--mono); font-variant-numeric:tabular-nums;
+    font-size:19px; line-height:1; width:5ch; text-align:right;
+    background:transparent; color:var(--ink);
+    border:none; border-bottom:1px dashed var(--rule);
+    padding:0 2px; margin:0;
+    -moz-appearance:textfield; appearance:textfield;
+  }
+  .rose .num{font-size:26px; width:3.6ch}
+  .num::-webkit-outer-spin-button,
+  .num::-webkit-inner-spin-button{-webkit-appearance:none; margin:0}
+  .num:focus{
+    outline:none; background:var(--panel-2);
+    border-bottom:1px solid var(--ink);
+  }
+  .num.invalid{color:var(--alarm); border-bottom-color:var(--alarm)}
   .track-wrap{position:relative; margin:8px 0 4px}
   input[type=range]{
     -webkit-appearance:none; appearance:none; width:100%; height:24px;
@@ -139,7 +155,8 @@
   <section class="rose">
     <div class="rose-head">
       <span class="field-label" id="dirLabel">Wind direction</span>
-      <span class="value"><span id="dirValue">&mdash;</span><span class="unit">&deg;</span>
+      <span class="value"><input class="num" id="dirValue" type="number"
+          inputmode="numeric" min="0" max="359" step="1"><span class="unit">&deg;</span>
         <span class="unit" id="dirCardinal"></span></span>
     </div>
 
@@ -172,9 +189,11 @@
       <div><span class="field-label">Spinning</span><span class="value" id="tSpinning">&mdash;</span></div>
       <div><span class="field-label">Grid</span><span class="value" id="tState">&mdash;</span></div>
     </div>
-    <p class="keys">The viewer keeps its keys: <kbd>S</kbd> speed, <kbd>D</kbd> direction,
-      <kbd>T</kbd> temperature, <kbd>G</kbd> grid limit, then <kbd>&uarr;</kbd> <kbd>&darr;</kbd>.
-      Changes made there appear here. Drag the vane, or focus it and use
+    <p class="keys">Drag a slider, or type a value in its field and press
+      <kbd>Enter</kbd>. The viewer keeps its keys: <kbd>S</kbd> speed,
+      <kbd>D</kbd> direction, <kbd>T</kbd> temperature, <kbd>G</kbd> grid limit,
+      then <kbd>&uarr;</kbd> <kbd>&darr;</kbd>. Changes made there appear here.
+      Drag the vane, type a bearing, or focus the dial and use
       <kbd>&larr;</kbd> <kbd>&rarr;</kbd>; hold <kbd>Shift</kbd> to snap to 15&deg;.</p>
   </footer>
 </main>
@@ -253,7 +272,9 @@
     var spec = fields[key];
     if (spec.control === "compass") {
       $("vane").style.transform = "rotate(" + value + "deg)";
-      $("dirValue").textContent = fmt(value, spec);
+      if (document.activeElement !== $("dirValue")) {
+        $("dirValue").value = fmt(value, spec);
+      }
       $("dirCardinal").textContent = cardinal(value);
       $("dial").setAttribute("aria-valuenow", Math.round(value));
       $("dial").setAttribute("aria-valuetext", Math.round(value) + " degrees, " + cardinal(value));
@@ -262,7 +283,7 @@
     var f = el[key];
     if (Number(f.input.value) !== value) { f.input.value = value; }
     f.input.style.setProperty("--fill", pct(value, spec).toFixed(1) + "%");
-    f.value.textContent = fmt(value, spec);
+    if (document.activeElement !== f.value) { f.value.value = fmt(value, spec); }
   }
 
   function telemetry(t) {
@@ -345,6 +366,42 @@
       lastEdited = "wind_direction"; editingUntil = Date.now() + 400;
       setDirection((values.wind_direction || 0) + d);
     });
+
+    // The bearing readout is also an input: type a bearing, press Enter. Out-of-range
+    // values wrap the way the compass does, so 725 becomes 5 and -10 becomes 350.
+    var num = $("dirValue");
+    num.title = "Type a bearing and press Enter";
+    num.setAttribute("aria-label", "Wind direction in degrees");
+
+    function restore() {
+      var spec = fields.wind_direction;
+      var v = values.wind_direction || 0;
+      num.value = spec ? fmt(v, spec) : String(Math.round(v));
+    }
+
+    function commitDirection() {
+      var raw = num.value.trim();
+      var v = Number(raw);
+      if (raw === "" || !isFinite(v)) { num.classList.add("invalid"); return false; }
+      num.classList.remove("invalid");
+      v = ((Math.round(v) % 360) + 360) % 360;
+      num.value = String(v);
+      setDirection(v);
+      return true;
+    }
+
+    num.addEventListener("focus", function () {
+      editing = "wind_direction"; lastEdited = "wind_direction"; num.select();
+    });
+    num.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); if (commitDirection()) { num.blur(); } }
+      else if (e.key === "Escape") { e.preventDefault(); num.blur(); }
+    });
+    num.addEventListener("blur", function () {
+      editing = null; editingUntil = Date.now() + 400;
+      num.classList.remove("invalid");
+      restore();
+    });
   }
 
   /* ---- sliders -------------------------------------------------------- */
@@ -354,13 +411,13 @@
     row.className = "row";
     row.innerHTML =
       '<div class="row-head"><span class="field-label"></span>' +
-      '<span class="value"><span class="num">\u2014</span>' +
+      '<span class="value"><input class="num" type="number" inputmode="decimal">' +
       '<span class="unit"></span></span></div>' +
       '<div class="track-wrap"><input type="range"><span class="load-mark"></span></div>' +
       '<div class="scale"><span class="lo"></span><span class="hi"></span></div>' +
       '<p class="hint"></p>';
 
-    var input = row.querySelector("input");
+    var input = row.querySelector("input[type=range]");
     input.min = spec.min; input.max = spec.max; input.step = spec.step;
     input.id = "in_" + key;
     row.querySelector(".field-label").textContent = spec.label;
@@ -369,6 +426,43 @@
     row.querySelector(".lo").textContent = spec.min + " " + spec.unit;
     row.querySelector(".hi").textContent = spec.max + " " + spec.unit;
     row.querySelector(".hint").textContent = spec.hint || "";
+
+    var num = row.querySelector(".num");
+    num.min = spec.min; num.max = spec.max; num.step = spec.step;
+    num.title = "Type a value and press Enter";
+    num.setAttribute("aria-label", spec.label + " in " + spec.unit);
+
+    // Enter commits the typed value; leaving the field without Enter restores
+    // whatever the simulation currently holds, so a half-typed number is never
+    // sent by accident.
+    function commit() {
+      var raw = num.value.trim();
+      var v = Number(raw);
+      if (raw === "" || !isFinite(v)) { num.classList.add("invalid"); return false; }
+      num.classList.remove("invalid");
+      v = Math.max(spec.min, Math.min(spec.max, v));
+      if (spec.step) { v = Math.round((v - spec.min) / spec.step) * spec.step + spec.min; }
+      v = Number(v.toFixed(spec.decimals));
+      num.value = fmt(v, spec);
+      values[key] = v;
+      lastEdited = key; editingUntil = Date.now() + 400;
+      draw(key, v);
+      send(key, v);
+      return true;
+    }
+
+    num.addEventListener("focus", function () {
+      editing = key; lastEdited = key; num.select();
+    });
+    num.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); if (commit()) { num.blur(); } }
+      else if (e.key === "Escape") { e.preventDefault(); num.blur(); }
+    });
+    num.addEventListener("blur", function () {
+      editing = null; editingUntil = Date.now() + 400;
+      num.classList.remove("invalid");
+      num.value = fmt(values[key] !== undefined ? values[key] : spec.min, spec);
+    });
 
     input.addEventListener("pointerdown", function () { editing = key; lastEdited = key; });
     input.addEventListener("focus", function () { lastEdited = key; });
@@ -381,7 +475,7 @@
       input.addEventListener(type, function () { editing = null; editingUntil = Date.now() + 400; });
     });
 
-    el[key] = {input: input, value: row.querySelector(".num"), mark: row.querySelector(".load-mark")};
+    el[key] = {input: input, value: num, mark: row.querySelector(".load-mark")};
     $("sliders").appendChild(row);
   }
 

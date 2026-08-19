@@ -81,7 +81,7 @@ def cp_for_wind(wind_speed: float) -> float:
     cp = (2.181e-6 * v_1**6 - 9.334e-5 * v_1**5 + 1.278e-3 * v_1**4 - 2.108e-3 * v_1**3
           - 9.360e-2 * v_1**2 + 0.7076 * v_1 - 1.0154)
     return float(np.clip(cp, 0.0, BETZ_LIMIT))
-    #return 0.45  # for testing, always return a fixed value
+    # return 0.45  # for testing, always return a fixed value
 
 # ---- power -------------------------------------------------------- #
 def real_efficiency(c_p: float = C_P, k_m: float = 0.015, k_e: float = 0.0125,

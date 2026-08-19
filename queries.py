@@ -30,7 +30,7 @@ from main1 import main
 
 from semantic_annotations import (
     GeneratedEnergy, GeneratedPower, NacelleYaw, RotorSpeed,
-    Temperature, WindDirection, WindSpeed,
+    Temperature, WindDirection, WindSpeed, Hub,
 )
 
 try:
@@ -77,6 +77,9 @@ def annotation_report(source) -> str:
              for cls in (WindSpeed, WindDirection, Temperature)]
     all_rotor_speeds = source.get_semantic_annotations_by_type(RotorSpeed)
     for ann in all_rotor_speeds:
+        lines.append(f"  {ann}")
+    all_turbine_yaws = source.get_semantic_annotations_by_type(NacelleYaw)
+    for ann in all_turbine_yaws:
         lines.append(f"  {ann}")
     return "\n".join(lines)
 
@@ -319,13 +322,13 @@ def was_spinning_at(name: str, time_s: float, source=None, eps: float = 0.05) ->
 
 
 # --- 2. what was the highest wind speed? ----------------------------- #
-def highest_wind_speed(source=None) -> (str, float):
+def highest_wind_speed(source=None) -> (str, str, float):
     """Timestamp of the highest recorded wind speed, and the speed [m/s]."""
     history = _samples(source)
     if not history:
         return (None, 0.0)
     s = max(history, key=lambda s: s["wind_speed"])
-    return (s["timestamp"], s["wind_speed"])
+    return (s["timestamp"],s["time_s"], s["wind_speed"])
 
 
 # --- 3. at what wind speed did I have X MW? -------------------------- #
@@ -359,6 +362,37 @@ def wind_speed_for_power(target_mw: float, source=None, tol_frac: float = 0.05) 
         "note": f"nothing within {tol_frac:.0%}; showing closest sample",
     }
 
+def time_for_energy(target_kwh: float, source=None) -> dict:
+    """The first moment the farm had produced at least `target_kwh` kilowatt-hours.
+
+    Energy accumulates, so this is not a search for a matching value but for the
+    first sample that reaches the target. Returns the time and the wind speed at
+    that moment, or reached=False if the run ended before getting there.
+    """
+    history = _samples(source)
+    if not history:
+        return {"reached": False, "note": "no history recorded"}
+
+    for s in history:
+        if s.get("total_energy_kwh", 0.0) >= target_kwh:
+            return {
+                "reached": True,
+                "target_kwh": target_kwh,
+                "time_s": s["time_s"],
+                "timestamp": s["timestamp"],
+                "wind_speed": s["wind_speed"],
+                "total_energy_kwh": s["total_energy_kwh"],
+            }
+
+    best = max(history, key=lambda s: s.get("total_energy_kwh", 0.0))
+    return {
+        "reached": False,
+        "target_kwh": target_kwh,
+        "highest_kwh": best.get("total_energy_kwh", 0.0),
+        "time_s": best["time_s"],
+        "note": "the run ended before reaching the target",
+    }
+
 
 # ------------------------------------------------------------------ #
 world, driver = main()
@@ -366,35 +400,51 @@ time.sleep(5)   # let the 20 Hz timer step the driver and fill the annotations
 
 # Environment -- read out of the semantic world
 # print(annotation_report(world))
-
-# Live turbine queries -- every one of these reads an annotation, not the driver
-# print(is_turbine_spinning(driver, "Farm_East_tall"))
-# print(turbine_rpm(driver, "Farm_East_tall"))
-# print(turbine_nacelle_yaw_deg(driver, "Farm_East_tall"))
-# print(turbine_status(driver, "Farm_East_tall"))
-
-# print(turbine_status(driver))
-# print(fastest_turbine(driver))
-# print(slowest_turbine(driver))
-# print(slowest_moving_turbine(driver))
-# print(most_powerful_turbine(driver))
-# print(least_powerful_turbine(driver))
-# print(least_powerful_moving_turbine(driver))
+#
+# # Live turbine queries -- every one of these reads an annotation, not the driver
+# print(is_turbine_spinning(world, "Farm_Big_tall"))
+# print(turbine_rpm(world, "Farm_Big_tall"))
+# print(turbine_nacelle_yaw_deg(world, "Farm_Big_tall"))
+# print(turbine_status(world, "Farm_Big_tall"))
+#
+# print(turbine_status(world))
+# print(fastest_turbine(world))
+# print(slowest_turbine(world))
+# print(slowest_moving_turbine(world))
+# print(most_powerful_turbine(world))
+# print(least_powerful_turbine(world))
+# print(least_powerful_moving_turbine(world))
 # print(peak_power_report(driver))
 
 # History queries -- the recorded run, not the live world
-# print(spinning_intervals("Farm_East_tall"))
-# print(was_spinning_at("Farm_East_tall", 40.0))
-# print(was_spinning_at("Farm_East_tall", 70.0))
+# print(spinning_intervals("Farm_Big_1"))
+# print(was_spinning_at("Farm_West_3", 196.0))
+# print(was_spinning_at("Farm_West_3", 197.0))
 # print(highest_wind_speed())
-# print(wind_speed_for_power(43.0))
+# print(wind_speed_for_power(841.0))
+# print(wind_speed_for_power(0.0))
+# print(wind_speed_for_power(1.0))
+# print(time_for_energy(42000.0))
+# print(time_for_energy(20000.0))
+# print(time_for_energy(1.0))
 
 
-print(annotation_report(world))
 
-print(world.get_semantic_annotations_by_type(RotorSpeed))
 
-for name in world.get_semantic_annotations_by_type(RotorSpeed):
-    if name.turbine == "Farm_East_2":
-        print(name.turbine, name.value)
 
+
+# print(environment(world))
+# print(fastest_turbine(world))
+# print(slowest_moving_turbine(world))
+# print(most_powerful_turbine(world))
+# print(least_powerful_moving_turbine(world))
+# print(peak_power_report(driver))
+#
+# print(spinning_turbines(world))
+# print((total_energy(world)))
+# print(total_power(world))
+#
+# results = 0
+# for turbine in spinning_turbines(world):
+#     results = results + turbine_power(world, turbine)
+# print(results)
