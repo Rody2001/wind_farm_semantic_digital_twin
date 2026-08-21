@@ -99,8 +99,41 @@ def _f(v: float) -> str:
     return f"{v:.6g}"
 
 
-def _turbine_body(spec: TurbineSpec) -> str:
-    """Build a MuJoCo XML body for a single turbine."""
+class MeshLibrary:
+    """Collects the <mesh> assets a scene needs, one per part and scale.
+
+    Turbines of the same height share a mesh asset; a different height needs a
+    different scale and therefore its own asset, even though both point at the
+    same OBJ file.
+    """
+
+    def __init__(self, directory: str):
+        self.dir = directory.rstrip("/")
+        self._names: dict = {}
+        self._order: list = []
+
+    def ref(self, part: str, sx: float, sy: float, sz: float) -> str:
+        key = (part, round(sx, 6), round(sy, 6), round(sz, 6))
+        if key not in self._names:
+            name = f"{part}_{len(self._order)}"
+            self._names[key] = name
+            self._order.append((name, part, sx, sy, sz))
+        return self._names[key]
+
+    def xml(self) -> str:
+        return "\n    ".join(
+            f'<mesh name="{n}" file="{self.dir}/{p}.obj" '
+            f'scale="{_f(sx)} {_f(sy)} {_f(sz)}"/>'
+            for n, p, sx, sy, sz in self._order)
+
+
+def _turbine_body(spec: TurbineSpec, meshes: "MeshLibrary" = None) -> str:
+    """Build a MuJoCo XML body for a single turbine.
+
+    With `meshes`, every part is a scaled instance of a generated OBJ; without
+    it, the original primitives are used. The joints, the sites, and every geom
+    name are identical either way, so the drivers cannot tell the difference.
+    """
     H = spec.tower_height
     n = spec.name
 
@@ -123,6 +156,14 @@ def _turbine_body(spec: TurbineSpec) -> str:
     hub_hl    = 0.02 * H
     spin_a, spin_b = 0.05 * H, 0.028 * H
 
+    # The hub body is placed hub_x ahead of the nacelle body, which puts it
+    # tower_radius beyond the nacelle's front face -- the rotor overhang a real
+    # turbine has. In the hub's own frame that face therefore lies at
+    # x = -tower_radius. Anything drawn on the hub has to start behind that
+    # point, or the spinner floats free of the nacelle.
+    hub_back  = -1.3 * tower_radius
+    nose_x    = 0.09 * H
+
     blade_z   = L / 2.0 + nacelle_h / 2.0
     tip_half  = 0.03 * L
     tip_z     = blade_z + L / 2.0 - tip_half
@@ -130,32 +171,80 @@ def _turbine_body(spec: TurbineSpec) -> str:
     aero_r    = 0.006 * H
     radials   = (-120.0, 120.0, 0.0)
 
+    # blade meshes span z in [0, 1] from the root, so they hang from the hub
+    blade_root_z = nacelle_h / 2.0
+
     def blade(i: int, rx: float) -> str:
         """Build a MuJoCo XML body for a single blade."""
         b = f"{n}_blade{i}"
+        if meshes is not None:
+            m_blade = meshes.ref("blade", blade_x_half * 2, blade_y_half * 2, L)
+            m_tip = meshes.ref("blade_tip", blade_x_half * 2, blade_y_half * 2, L)
+            geoms = (
+                f'<geom name="{b}_geom" type="mesh" mesh="{m_blade}" '
+                f'pos="0 0 {_f(blade_root_z)}" material="blade_mat"/>\n'
+                f'          <geom name="{b}_tip" type="mesh" mesh="{m_tip}" '
+                f'pos="0 0 {_f(blade_root_z)}" material="tip_mat"/>')
+        else:
+            geoms = (
+                f'<geom name="{b}_geom" type="box" '
+                f'size="{_f(blade_x_half)} {_f(blade_y_half)} {_f(L/2)}" '
+                f'pos="0 0 {_f(blade_z)}" material="blade_mat"/>\n'
+                f'          <geom name="{b}_tip" type="box" '
+                f'size="{_f(blade_x_half)} {_f(blade_y_half)} {_f(tip_half)}" '
+                f'pos="0 0 {_f(tip_z)}" material="tip_mat"/>')
         return f"""\
         <body name="{b}" euler="{_f(rx)} 0 {_f(-PITCH_DEG)}">
-          <geom name="{b}_geom" type="box" size="{_f(blade_x_half)} {_f(blade_y_half)} {_f(L/2)}" pos="0 0 {_f(blade_z)}" material="blade_mat"/>
-          <geom name="{b}_tip" type="box" size="{_f(blade_x_half)} {_f(blade_y_half)} {_f(tip_half)}" pos="0 0 {_f(tip_z)}" material="tip_mat"/>
+          {geoms}
           <site name="{b}_aero" pos="0 0 {_f(aero_z)}" size="{_f(aero_r)}"/>
         </body>"""
 
     blades = "\n".join(blade(i + 1, rx) for i, rx in enumerate(radials))
 
+    if meshes is not None:
+        base_geom = (f'<geom name="{n}_tower_base" type="mesh" '
+                     f'mesh="{meshes.ref("base", base_half, base_half, 0.2)}" '
+                     f'pos="0 0 0" material="base_mat"/>')
+        tower_geom = (f'<geom name="{n}_tower" type="mesh" '
+                      f'mesh="{meshes.ref("tower", tower_radius, tower_radius, H)}" '
+                      f'pos="0 0 0.1" material="tower_mat"/>')
+        nacelle_geom = (f'<geom name="{n}_nacelle_geom" type="mesh" '
+                        f'mesh="{meshes.ref("nacelle", nacelle_len, tower_width, nacelle_h)}" '
+                        f'pos="{_f(-nacelle_len/4)} 0 0" material="nacelle_mat"/>')
+        hub_geoms = (f'<geom name="{n}_spinner" type="mesh" '
+                     f'mesh="{meshes.ref("spinner", nose_x - hub_back, hub_r, hub_r)}" '
+                     f'pos="{_f(hub_back)} 0 0" material="hub_mat"/>')
+    else:
+        base_geom = (f'<geom name="{n}_tower_base" type="box" '
+                     f'size="{_f(base_half)} {_f(base_half)} 0.1" pos="0 0 0" material="base_mat"/>')
+        tower_geom = (f'<geom name="{n}_tower" type="cylinder" '
+                      f'size="{_f(tower_radius)} {_f(H/2)}" pos="0 0 {_f(tower_z)}" material="tower_mat"/>')
+        nacelle_geom = (f'<geom name="{n}_nacelle_geom" type="box" '
+                        f'size="{_f(nacelle_len/2)} {_f(tower_radius)} {_f(nacelle_h/2)}" '
+                        f'pos="{_f(-nacelle_len/4)} 0 0" material="nacelle_mat"/>')
+        # stretch the hub cylinder back to the nacelle instead of centring it
+        hub_half = (hub_hl - hub_back) / 2.0
+        hub_cx = (hub_hl + hub_back) / 2.0
+        hub_geoms = (f'<geom name="{n}_hub_geom" type="cylinder" '
+                     f'size="{_f(hub_r)} {_f(hub_half)}" euler="0 90 0" '
+                     f'pos="{_f(hub_cx)} 0 0" material="hub_mat"/>\n'
+                     f'          <geom name="{n}_spinner" type="ellipsoid" '
+                     f'size="{_f(spin_a)} {_f(spin_b)} {_f(spin_b)}" '
+                     f'pos="{_f(0.04*H)} 0 0" material="hub_mat"/>')
+
     return f"""\
     <!-- {n} | tower_height = {_f(H)} | pos ({_f(spec.x)}, {_f(spec.y)}) | initial yaw {_f(yaw_deg)} deg -->
     <body name="{n}_base" pos="{_f(spec.x)} {_f(spec.y)} {_f(spec.z)}" euler="0 0 {_f(yaw_deg)}">
-      <geom name="{n}_tower_base" type="box" size="{_f(base_half)} {_f(base_half)} 0.1" pos="0 0 0" material="base_mat"/>
-      <geom name="{n}_tower" type="cylinder" size="{_f(tower_radius)} {_f(H/2)}" pos="0 0 {_f(tower_z)}" material="tower_mat"/>
+      {base_geom}
+      {tower_geom}
 
       <body name="{n}_nacelle" pos="0 0 {_f(nacelle_z)}">
         <joint name="{n}_yaw" class="yaw"/>
-        <geom name="{n}_nacelle_geom" type="box" size="{_f(nacelle_len/2)} {_f(tower_radius)} {_f(nacelle_h/2)}" pos="{_f(-nacelle_len/4)} 0 0" material="nacelle_mat"/>
+        {nacelle_geom}
 
         <body name="{n}_hub" pos="{_f(hub_x)} 0 0">
           <joint name="{n}_rotor" class="rotor"/>
-          <geom name="{n}_hub_geom" type="cylinder" size="{_f(hub_r)} {_f(hub_hl)}" euler="0 90 0" pos="0 0 0" material="hub_mat"/>
-          <geom name="{n}_spinner" type="ellipsoid" size="{_f(spin_a)} {_f(spin_b)} {_f(spin_b)}" pos="{_f(0.04*H)} 0 0" material="hub_mat"/>
+          {hub_geoms}
 
 {blades}
         </body>
@@ -203,11 +292,15 @@ def _ground_texture(ground_file: str = None) -> tuple[str, float]:
 
 
 def build_mujoco_xml(specs: list[TurbineSpec], ground: float = None,
-                     sky_file: str = None, ground_file: str = None) -> str:
+                     sky_file: str = None, ground_file: str = None,
+                     mesh_dir: str = None) -> str:
     """Build a MuJoCo XML file for a wind farm."""
     if ground is None:
         ground = _auto_ground(specs)
-    bodies = "\n\n".join(_turbine_body(s) for s in specs)
+
+    meshes = MeshLibrary(mesh_dir) if mesh_dir else None
+    bodies = "\n\n".join(_turbine_body(s, meshes) for s in specs)
+    mesh_assets = ("\n    " + meshes.xml()) if meshes else ""
 
     sky_tex = _sky_texture(sky_file)
     ground_tex, repeat_factor = _ground_texture(ground_file)
@@ -238,7 +331,7 @@ def build_mujoco_xml(specs: list[TurbineSpec], ground: float = None,
     <geom contype="0" conaffinity="0"/>
   </default>
 
-  <asset>
+  <asset>{mesh_assets}
     {sky_tex}
     {ground_tex}
     <material name="ground_mat"  texture="ground_tex" texrepeat="{_f(tiles)} {_f(tiles)}"
@@ -266,11 +359,13 @@ def build_mujoco_xml(specs: list[TurbineSpec], ground: float = None,
 
 def export_wind_farm(specs: list[TurbineSpec] = None,
                      out_path: str = "wind_turbine_generated.xml",
-                     sky_file: str = None, ground_file: str = None) -> Path:
+                     sky_file: str = None, ground_file: str = None,
+                     mesh_dir: str = None) -> Path:
     """Export a wind farm to a MuJoCo XML file."""
     specs = specs if specs is not None else combined_specs()
     Path(out_path).write_text(
-        build_mujoco_xml(specs, sky_file=sky_file, ground_file=ground_file),
+        build_mujoco_xml(specs, sky_file=sky_file, ground_file=ground_file,
+                         mesh_dir=mesh_dir),
         encoding="utf-8")
     return Path(out_path)
 
@@ -331,6 +426,9 @@ def main() -> None:
     ap.add_argument("--ground", default=None,
                     help="ground colour texture PNG, e.g. a CC0 grass texture from ambientCG "
                          "(default: a procedural checkerboard)")
+    ap.add_argument("--meshes", default=None,
+                    help="directory of turbine part meshes from make_turbine_meshes.py "
+                         "(default: the boxes, cylinders and ellipsoids)")
     ap.add_argument("--time", type=float, default=None,
                     help="run N seconds then auto-close, logging history at 1 Hz")
     ap.add_argument("--history-file", default="history.jsonl",
@@ -341,15 +439,23 @@ def main() -> None:
     for label, value in (("--sky", args.sky), ("--ground", args.ground)):
         if value is not None and not Path(value).is_file():
             raise SystemExit(f"{label}: no such file: {value}")
+    if args.meshes is not None:
+        missing = [f"{p}.obj" for p in ("base", "tower", "nacelle", "spinner",
+                                        "blade", "blade_tip")
+                   if not (Path(args.meshes) / f"{p}.obj").is_file()]
+        if missing:
+            raise SystemExit(f"--meshes {args.meshes}: missing {', '.join(missing)}. "
+                             f"Run: python make_turbine_meshes.py -o {args.meshes}")
 
     selected = resolve_farms(args.farm or ["all"])
     specs = combined_specs(selected)
 
-    path = export_wind_farm(specs, args.out, args.sky, args.ground)
+    path = export_wind_farm(specs, args.out, args.sky, args.ground, args.meshes)
     counts = ", ".join(f"{k}: {len(v)}" for k, v in selected.items())
     print(f"Wrote {len(specs)} turbines ({counts}) -> {path.resolve()}")
     print(f"  sky:    {args.sky or 'procedural gradient'}")
     print(f"  ground: {args.ground or 'procedural checkerboard'}")
+    print(f"  parts:  {args.meshes + '/*.obj' if args.meshes else 'primitives'}")
 
     if args.launch or args.headless is not None:
         clear_history()

@@ -150,6 +150,12 @@ class QueryDriver:
                 continue
             name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, g)
             if name and name.endswith("_geom"):
+                if self.model.geom_type[g] == mujoco.mjtGeom.mjGEOM_MESH:
+                    # For a mesh geom, geom_size is the half-extent measured from
+                    # the recentred mesh origin, which is not the span. geom_aabb
+                    # is the real bounding box, and a blade is far longer than it
+                    # is wide, so its largest extent is the length.
+                    return 2.0 * float(max(self.model.geom_aabb[g][3:6]))
                 return 2.0 * float(self.model.geom_size[g][2])
         return 1.0
 
@@ -299,6 +305,10 @@ class Aerodynamics:
                 continue
             name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, g)
             if name and name.endswith("_geom"):
+                if self.model.geom_type[g] == mujoco.mjtGeom.mjGEOM_MESH:
+                    # the two largest extents of the bounding box: chord x span
+                    h = sorted(self.model.geom_aabb[g][3:6])
+                    return (2 * h[1]) * (2 * h[2])
                 sx, sy, sz = self.model.geom_size[g]
                 return (2 * sy) * (2 * sz)
         return 0.1

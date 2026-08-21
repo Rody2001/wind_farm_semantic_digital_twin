@@ -30,7 +30,7 @@ from main1 import main
 
 from semantic_annotations import (
     GeneratedEnergy, GeneratedPower, NacelleYaw, RotorSpeed,
-    Temperature, WindDirection, WindSpeed, Hub,
+    Temperature, WindDirection, WindSpeed, Hub, Tower,
 )
 
 try:
@@ -448,3 +448,8 @@ time.sleep(5)   # let the 20 Hz timer step the driver and fill the annotations
 # for turbine in spinning_turbines(world):
 #     results = results + turbine_power(world, turbine)
 # print(results)
+
+
+print(world.get_semantic_annotation_by_name("Farm_Big_1_hub").material)
+
+# Hub(name=PrefixedName('None/Farm_Big_1_hub'), id=UUID('2567a4a6-9407-480e-bc2e-36bd0fd56517'), root=Body(name=PrefixedName('None/Farm_Big_1_hub'), id=UUID('78bfc8a4-0129-4403-b4ad-9b06442f9c17'), index=116), material='cast iron')

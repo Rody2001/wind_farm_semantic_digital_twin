@@ -6,7 +6,9 @@ Semantic annotations for the wind farm digital twin.
 Two kinds live here:
 
 * Structural annotations (Tower, Nacelle, Hub, RotorBlades, TowerBase) say what
-  a Body IS. They carry no data of their own -- the geometry sits on the Body.
+  a Body IS and what it is made of. The geometry sits on the Body; the material
+  is a property only the semantic model records, since MuJoCo's own materials
+  describe nothing but how a surface is drawn.
 
 * Measured annotations carry a scalar VALUE that changes while MuJoCo runs.
   SemanticWindDriver.step() updates them every tick, in the same loop that moves
@@ -61,31 +63,90 @@ class ScalarValueMixin:
 
 
 # ------------------------------------------------------------------ #
-# structural annotations (unchanged)
+# structural annotations: what a body IS, and what it is made of
 # ------------------------------------------------------------------ #
 @dataclass(eq=False)
-class Tower(HasRootBody):
-    ...
+class TurbinePart(HasRootBody):
+    """A structural part of a turbine.
+
+    Every part carries the material it is made of, so the world can be asked
+    what a turbine is built from and not only what shape it has. The defaults
+    below are the materials used in a modern three-bladed turbine; pass
+    `material=` to override one.
+
+    Querying every part of every turbine at once is then just::
+
+        for part in world.get_semantic_annotations_by_type(TurbinePart):
+            print(part.name, part.material)
+    """
+    material: str = field(default="", kw_only=True)
 
 
 @dataclass(eq=False)
-class RotorBlades(HasRootBody):
-    ...
+class Tower(TurbinePart):
+    """The tube the nacelle stands on. Usually rolled and welded steel sections,
+    sometimes concrete in the lower part of very tall towers."""
+    material: str = field(default="steel", kw_only=True)
 
 
 @dataclass(eq=False)
-class TowerBase(HasRootBody):
-    ...
+class RotorBlades(TurbinePart):
+    """A rotor blade: a glass-fibre reinforced epoxy shell over a load-carrying
+    spar, which in longer blades is reinforced with carbon fibre."""
+    material: str = field(default="glass fibre reinforced polymer", kw_only=True)
 
 
 @dataclass(eq=False)
-class Nacelle(HasRootBody):
-    ...
+class TowerBase(TurbinePart):
+    """The foundation the tower is anchored into."""
+    material: str = field(default="reinforced concrete", kw_only=True)
 
 
 @dataclass(eq=False)
-class Hub(HasRootBody):
-    ...
+class Nacelle(TurbinePart):
+    """The housing around the drive train. The structure inside is steel; the
+    weatherproof shell itself is a moulded composite."""
+    material: str = field(default="glass fibre reinforced polymer", kw_only=True)
+
+
+@dataclass(eq=False)
+class Hub(TurbinePart):
+    """The casting the blades are bolted to, carrying the whole rotor load."""
+    material: str = field(default="cast iron", kw_only=True)
+
+
+# The keys accepted by WindTurbine.create_with_new_body_in_world(materials=...).
+MATERIAL_KEYS = ("tower_base", "tower", "nacelle", "hub", "rotor_blade")
+
+
+def find_part(world, part_name: str):
+    """The TurbinePart annotation named `part_name`, e.g. "Farm_Big_1_tower".
+
+    Matches on the bare name rather than the prefixed form, so "Farm_Big_1_tower"
+    finds PrefixedName("None/Farm_Big_1_tower"). Returns None if there is no such
+    part.
+    """
+    for part in world.get_semantic_annotations_by_type(TurbinePart):
+        name = getattr(part, "name", None)
+        if name is None:
+            continue
+        if getattr(name, "name", None) == part_name or str(name).endswith("/" + part_name):
+            return part
+    return None
+
+
+def part_material(world, part_name: str) -> str:
+    """What the named part is made of. Raises KeyError if there is no such part."""
+    part = find_part(world, part_name)
+    if part is None:
+        raise KeyError(f"no turbine part named {part_name!r} in the world")
+    return part.material
+
+
+def bill_of_materials(world) -> dict:
+    """Every turbine part in the world mapped to the material it is made of."""
+    return {getattr(p.name, "name", str(p.name)): p.material
+            for p in world.get_semantic_annotations_by_type(TurbinePart)}
 
 
 # ------------------------------------------------------------------ #

@@ -11,7 +11,7 @@ import rclpy
 
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import VizMarkerPublisher
 
-from semantic_annotations import Tower, Nacelle, RotorBlades, Hub, TowerBase
+from semantic_annotations import Tower, Nacelle, RotorBlades, Hub, TowerBase, TurbinePart
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import VizMarkerPublisher
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
@@ -33,6 +33,16 @@ from ros_turbine_subscriber import RosTurbineSubscriber
 from semantic_environment import EnvironmentAnnotations, annotate_turbines
 
 
+# Per-turbine material overrides, keyed by the farm-prefixed turbine name from
+# combined_specs(). Anything not listed here uses the defaults declared on the
+# annotation classes in semantic_annotations.py.
+#
+#     MATERIALS = {"Farm_Big_1": {"tower": "gold"}}
+#
+# and then part_material(world, "Farm_Big_1_tower") returns "gold".
+MATERIALS: dict = {}
+
+
 @dataclass
 class WindTurbine(ActiveConnection1DOF, HasUpdateState):
     rotor_dof: DegreeOfFreedom = field(default=None, kw_only=True)
@@ -48,6 +58,7 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
         tower_height: float,
         rotor_blade_length: float = 0.0,
         parent_T_connection: HomogeneousTransformationMatrix = None,
+        materials: dict = None,
     ):
         """
         Create a complete wind turbine structure with 3 rotor blades.
@@ -62,7 +73,22 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
             rotor_blade_length: Length of each rotor blade
             base_size: Size of the tower base
             parent_T_connection: Transform from parent to turbine base
+            materials: optional overrides for what the parts are made of, keyed by
+                "tower_base", "tower", "nacelle", "hub", "rotor_blade". Any key
+                left out keeps the annotation class's own default, so
+                materials={"tower": "gold"} changes only the tower.
+
+        Every annotation is named after the body it describes, so a part can be
+        found by name later: world.get_semantic_annotations_by_type(TurbinePart)
+        yields annotations called "Farm_Big_1_tower", "Farm_Big_1_hub", and so on,
+        rather than five annotations per turbine all called "Tower".
         """
+        materials = materials or {}
+
+        def mat(key):
+            """Pass material= only when the caller gave one, so defaults stand."""
+            return {"material": materials[key]} if key in materials else {}
+
         if parent_T_connection is None:
             parent_T_connection = HomogeneousTransformationMatrix.from_xyz_rpy(x=0, y=0, z=0.2)
 
@@ -91,7 +117,9 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
                         collision=ShapeCollection([base_box]))
         base_conn = FixedConnection(parent=parent, child=base_body,
                                    parent_T_connection_expression=parent_T_connection)
-        base_annotation = TowerBase(root=base_body)
+        base_annotation = TowerBase(root=base_body,
+                                    name=PrefixedName(f"{name}_tower_base"),
+                                    **mat("tower_base"))
         elements_conns.append(base_conn)
         elements_annotations.append(base_annotation)
 
@@ -104,7 +132,9 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
         tower_conn = FixedConnection(parent=base_body, child=tower_body,
                                     parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
                                         x=0, y=0, z=tower_height/2 + 0.1))
-        tower_annotation = Tower(root=tower_body)
+        tower_annotation = Tower(root=tower_body,
+                                 name=PrefixedName(f"{name}_tower"),
+                                 **mat("tower"))
         elements_conns.append(tower_conn)
         elements_annotations.append(tower_annotation)
 
@@ -118,7 +148,9 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
             world=world, parent=tower_body, child=nacelle_body, axis=cas.Vector3.Z(),
             parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
                 x=-nacelle_length/4, y=0, z=(tower_height/2) + (nacelle_height/2)))
-        nacelle_annotation = Nacelle(root=nacelle_body)
+        nacelle_annotation = Nacelle(root=nacelle_body,
+                                     name=PrefixedName(f"{name}_nacelle"),
+                                     **mat("nacelle"))
         elements_conns.append(nacelle_conn)
         elements_annotations.append(nacelle_annotation)
 
@@ -131,7 +163,9 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
             world=world, parent=nacelle_body, child=hub_body, axis=cas.Vector3.X(),
             parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
                 x=nacelle_length/2 + (tower_width /2)))
-        hub_annotation = Hub(root=hub_body)
+        hub_annotation = Hub(root=hub_body,
+                             name=PrefixedName(f"{name}_hub"),
+                             **mat("hub"))
         elements_conns.append(hub_conn)
         elements_annotations.append(hub_annotation)
 
@@ -146,7 +180,9 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
             parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
                 y=-4.5*tower_width, z=2.5*tower_width, roll=-np.pi*2/3),  #x=-0.05, y=-(rotor_blade_length)/2, z=0.45, roll=-np.pi*2/3),
             axis=cas.Vector3.Z())
-        blade1_annotation = RotorBlades(root=blade1_body, name=PrefixedName(f"{name}_rotor_blade1"))
+        blade1_annotation = RotorBlades(root=blade1_body,
+                                         name=PrefixedName(f"{name}_rotor_blade1"),
+                                         **mat("rotor_blade"))
         elements_conns.append(blade1_conn)
         elements_annotations.append(blade1_annotation)
 
@@ -160,7 +196,9 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
             parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
                y=4.5*tower_width, z=2.5*tower_width, roll=np.pi*2/3),
             axis=cas.Vector3.Z())
-        blade2_annotation = RotorBlades(root=blade2_body, name=PrefixedName(f"{name}_rotor_blade2"))
+        blade2_annotation = RotorBlades(root=blade2_body,
+                                         name=PrefixedName(f"{name}_rotor_blade2"),
+                                         **mat("rotor_blade"))
         elements_conns.append(blade2_conn)
         elements_annotations.append(blade2_annotation)
 
@@ -174,7 +212,9 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
             parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
                 z=-(rotor_blade_length/2) - (nacelle_height/2)), # x=-0.05, y=0.0, z=-(rotor_blade_length)/2)
             axis=cas.Vector3.Z())
-        blade3_annotation = RotorBlades(root=blade3_body, name=PrefixedName(f"{name}_rotor_blade3"))
+        blade3_annotation = RotorBlades(root=blade3_body,
+                                         name=PrefixedName(f"{name}_rotor_blade3"),
+                                         **mat("rotor_blade"))
         elements_conns.append(blade3_conn)
         elements_annotations.append(blade3_annotation)
 
@@ -259,6 +299,7 @@ def main():
                 rotor_blade_length=spec.rotor_blade_length,
                 parent_T_connection=HomogeneousTransformationMatrix.from_xyz_rpy(
                     x=spec.x, y=spec.y, z=spec.z, yaw=spec.yaw),
+                materials=MATERIALS.get(spec.name),
             )
             turbine_hubs[spec.name] = {"hub": hub, "nacelle": nacelle}
             blade_length = spec.rotor_blade_length or (spec.tower_height * R_BLADE_LENGTH)
@@ -268,6 +309,7 @@ def main():
             )
         environment = EnvironmentAnnotations(world)
         annotate_turbines(world, turbine_runtimes)
+
     # =====================================================================
     # ROS2 Node (created early so we can subscribe before building the driver)
     # =====================================================================
