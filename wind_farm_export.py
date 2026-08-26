@@ -74,12 +74,12 @@ WIND_FARM_Big: list[TurbineSpec] = [
 
 # Every farm that should be exported / started together.
 ALL_FARMS: dict[str, list[TurbineSpec]] = {
-    "Farm_East": WIND_FARM_East,
-    "Farm_North": WIND_FARM_North,
-    "Farm_West": WIND_FARM_West,
-    "Farm_South": WIND_FARM_South,
-    "Farm_Big": WIND_FARM_Big,
-    # "Farm_Single": WIND_FARM_SINGLE,
+    # "Farm_East": WIND_FARM_East,
+    # "Farm_North": WIND_FARM_North,
+    # "Farm_West": WIND_FARM_West,
+    # "Farm_South": WIND_FARM_South,
+    # "Farm_Big": WIND_FARM_Big,
+    "Farm_Single": WIND_FARM_SINGLE,
 }
 
 
@@ -458,8 +458,6 @@ def main() -> None:
     print(f"  parts:  {args.meshes + '/*.obj' if args.meshes else 'primitives'}")
 
     if args.launch or args.headless is not None:
-        clear_history()
-        # clear_peak_state()
         cmd = [sys.executable, "wind_turbine_sim.py", "--model", str(path),
                "--wind", str(args.wind), "--direction", str(args.direction)]
         if args.gridLimit is not None:
@@ -477,6 +475,7 @@ def main() -> None:
         if args.ui:
             cmd += ["--ui", "--ui-port", str(args.ui_port)]
         if args.time is not None:
+            clear_history()
             cmd += ["--time", str(args.time), "--history-file", args.history_file]
         if args.headless is not None:
             cmd += ["--headless", str(args.headless)]

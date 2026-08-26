@@ -25,7 +25,7 @@ because the world only ever represents the present. They read the 1 Hz log.
 
 import time
 
-from history_file import clear_history, load_history, DEFAULT_HISTORY_FILE
+from history_file import load_history, DEFAULT_HISTORY_FILE
 from main1 import main
 
 from semantic_annotations import (

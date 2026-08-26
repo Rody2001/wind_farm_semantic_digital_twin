@@ -106,3 +106,12 @@ def generated_power_for_length(rho: float, wind_speed: float, blade_length: floa
     """
     cp = cp_for_wind(wind_speed) if c_p is None else c_p
     return real_efficiency(cp) * wind_power_for_length(rho, wind_speed, blade_length)
+
+
+def conditioned_power_out_put(rho: float, wind_speed: float, blade_length: float,
+                               c_p: float = None) -> float:
+    v = abs(wind_speed)
+    if v >= 12.5:
+        return 2240.0
+    else:
+        return generated_power_for_length(rho, wind_speed, blade_length, c_p)
