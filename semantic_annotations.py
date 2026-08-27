@@ -212,3 +212,24 @@ class GeneratedPower(MeasuredBodyScalar):
 class GeneratedEnergy(MeasuredBodyScalar):
     """Energy this turbine has generated since the run started."""
     unit: str = field(default="kWh", kw_only=True)
+
+
+# ------------------------------------------------------------------ #
+# rating -- set once at creation, not updated by step()
+# ------------------------------------------------------------------ #
+@dataclass(eq=False)
+class RatedPower(MeasuredBodyScalar):
+    """Rated output of this turbine: the ceiling GeneratedPower is held at once
+    the wind reaches RatedWindSpeed. 0 means the turbine is uncapped.
+
+    Written once by WindTurbine.create_with_new_body_in_world(max_kw=...) --
+    unlike the measured annotations above, nothing rewrites it every tick.
+    """
+    unit: str = field(default="kW", kw_only=True)
+
+
+@dataclass(eq=False)
+class RatedWindSpeed(MeasuredBodyScalar):
+    """Wind speed at and above which this turbine holds RatedPower instead of
+    following the cp curve. Above the 28 m/s cut-out it produces nothing."""
+    unit: str = field(default="m/s", kw_only=True)

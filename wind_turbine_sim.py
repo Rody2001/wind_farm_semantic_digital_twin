@@ -133,6 +133,9 @@ class QueryDriver:
         if not self.rotors:
             raise RuntimeError("No '*_rotor' joints found in the model.")
 
+        # rotor joint name -> (max_kw [kW], max_kw_wind_speed [m/s]); see below
+        self.ratings = self._read_ratings()
+
         self.names = [r[0] for r in self.rotors]
         self.energy_wh = {n: 0.0 for n in self.names}    # cumulative per turbine
         self.total_energy_wh = 0.0
@@ -158,6 +161,33 @@ class QueryDriver:
                     return 2.0 * float(max(self.model.geom_aabb[g][3:6]))
                 return 2.0 * float(self.model.geom_size[g][2])
         return 1.0
+
+    def _read_ratings(self):
+        """Per-turbine (max_kw, max_kw_wind_speed), read from the scene.
+
+        wind_farm_export.py writes one <custom><numeric name="<turbine>_rating"
+        data="max_kw max_kw_wind_speed"/> per rated turbine, so the rating
+        travels with the MJCF instead of having to be looked up in the Python
+        specs -- this driver then caps exactly the same turbines at exactly the
+        same speeds as SemanticWindDriver does. Turbines with no entry (older
+        scenes included) stay uncapped and keep following the cp curve.
+        """
+        table = {}
+        for i in range(self.model.nnumeric):
+            key = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_NUMERIC, i)
+            if not key or not key.endswith("_rating"):
+                continue
+            adr = self.model.numeric_adr[i]
+            size = self.model.numeric_size[i]
+            data = [float(x) for x in self.model.numeric_data[adr:adr + size]]
+            max_kw = data[0] if len(data) > 0 else 0.0
+            rated_v = data[1] if len(data) > 1 else 0.0
+            table[f"{key[:-len('_rating')]}_rotor"] = (max_kw, rated_v)
+        return table
+
+    def rating(self, rotor_joint_name):
+        """(max_kw, max_kw_wind_speed) for a rotor joint; (0, 0) if unrated."""
+        return self.ratings.get(rotor_joint_name, (0.0, 0.0))
 
     def reset_energy(self):
         for n in self.names:
@@ -208,7 +238,12 @@ class QueryDriver:
             v = self._rotor_wind(data, body_id, axis_local, wind_vec)
             rpm = formulas.rpm_for_wind(v, D, self.tsr)
             cp = formulas.cp_for_wind(v) if self.c_p is None else self.c_p
-            power = formulas.generated_power_for_length(self.rho, v, D, self.c_p) if rpm != 0 else 0.0
+            max_kw, rated_v = self.rating(name)
+            # capped_power_for_length holds the rated output above rated_v and
+            # returns 0 above the 28 m/s cut-out; unrated turbines fall through
+            # to the plain cp curve, exactly as before.
+            power = (formulas.capped_power_for_length(self.rho, v, D, max_kw, rated_v, self.c_p)
+                     if rpm != 0 else 0.0)
             rows.append((k, rpm, power, cp))
 
         if self.grid_limit_w is None:

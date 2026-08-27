@@ -14,6 +14,8 @@ R_NACELLE_HEIGHT = 678  / 15797
 R_BLADE_LENGTH   = 8475 / 15797
 R_BLADE_X        = 0.04 / 5
 R_BLADE_Y        = 0.18 / 5
+R_max_kw         = 2240.0 / 69.0
+R_max_kw_wind_speed = 12.5 / 69.0
 
 # How large one tile of the ground texture should be, in metres. Deriving the
 # texture repeat from this keeps a tile the same real-world size whatever the
@@ -24,15 +26,26 @@ CHECKER_TILE_M = 20.0       # for the procedural checkerboard
 
 @dataclass
 class TurbineSpec:
+    """One turbine.
+
+    max_kw / max_kw_wind_speed are this turbine's rating: at and above
+    max_kw_wind_speed [m/s] it holds max_kw [kW] instead of following the cp
+    curve; above the 28 m/s cut-out it produces nothing at all. Leave both at 0
+    for an uncapped turbine. See turbine_formulas.capped_power_for_length().
+    """
     name: str; tower_height: float
     x: float=0.0; y: float=0.0; z: float=0.1; yaw: float=0.0; rotor_blade_length: float=0.0
+    max_kw: float=0.0; max_kw_wind_speed: float=0.0
 
 
 # ===================================================================
 # SINGLE SOURCE OF TRUTH
 # ===================================================================
 WIND_FARM_SINGLE: list[TurbineSpec] = [
-    TurbineSpec("1", tower_height=131.0, x=100, y=0,  z=0.1, rotor_blade_length=69),
+    # rated 2240 kW from 12.5 m/s upwards -- the numbers the old hard-coded
+    # conditioned_power_out_put() used, now per turbine.
+    TurbineSpec("1", tower_height=131.0, x=100, y=0,  z=0.1, rotor_blade_length=69,
+                max_kw=2240.0, max_kw_wind_speed=12.5),
 ]
 WIND_FARM_East: list[TurbineSpec] = [
     TurbineSpec("1", tower_height=131.0, x=100, y=0,  z=0.1, rotor_blade_length=69.125),
@@ -291,6 +304,25 @@ def _ground_texture(ground_file: str = None) -> tuple[str, float]:
             2.0 / (2.0 * CHECKER_TILE_M))   # a checker texture is 2x2 squares
 
 
+def _ratings_xml(specs: list[TurbineSpec]) -> str:
+    """Per-turbine ratings as MuJoCo <custom><numeric> entries.
+
+    The rating is not geometry, so it cannot be read back off the model the way
+    blade length is. Writing it into the scene as "<name>_rating" = (max_kw,
+    max_kw_wind_speed) lets wind_turbine_sim.py's QueryDriver cap exactly the
+    same turbines at exactly the same speeds as the semantic world does, without
+    the sim having to know which farms this XML was built from.
+    """
+    rated = [s for s in specs if s.max_kw]
+    if not rated:
+        return ""
+    entries = "\n    ".join(
+        f'<numeric name="{s.name}_rating" '
+        f'data="{_f(s.max_kw)} {_f(s.max_kw_wind_speed)}"/>'
+        for s in rated)
+    return f"\n  <custom>\n    {entries}\n  </custom>\n"
+
+
 def build_mujoco_xml(specs: list[TurbineSpec], ground: float = None,
                      sky_file: str = None, ground_file: str = None,
                      mesh_dir: str = None) -> str:
@@ -353,7 +385,7 @@ def build_mujoco_xml(specs: list[TurbineSpec], ground: float = None,
 {bodies}
 
   </worldbody>
-</mujoco>
+{_ratings_xml(specs)}</mujoco>
 """
 
 

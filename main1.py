@@ -11,7 +11,8 @@ import rclpy
 
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import VizMarkerPublisher
 
-from semantic_annotations import Tower, Nacelle, RotorBlades, Hub, TowerBase, TurbinePart
+from semantic_annotations import (Tower, Nacelle, RotorBlades, Hub, TowerBase, TurbinePart,
+                                  RatedPower, RatedWindSpeed)
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import VizMarkerPublisher
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
@@ -26,7 +27,7 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
 
-from wind_farm_export import combined_specs, R_BLADE_LENGTH
+from wind_farm_export import combined_specs, R_BLADE_LENGTH, R_max_kw, R_max_kw_wind_speed
 from semantic_wind_driver import SemanticWindDriver, TurbineRuntime, set_wind
 from wind_state_file import DEFAULT_PATH as WIND_STATE_PATH
 from ros_turbine_subscriber import RosTurbineSubscriber
@@ -59,6 +60,8 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
         rotor_blade_length: float = 0.0,
         parent_T_connection: HomogeneousTransformationMatrix = None,
         materials: dict = None,
+        max_kw: float = 0.0,
+        max_kw_wind_speed: float = 0.0,
     ):
         """
         Create a complete wind turbine structure with 3 rotor blades.
@@ -77,6 +80,17 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
                 "tower_base", "tower", "nacelle", "hub", "rotor_blade". Any key
                 left out keeps the annotation class's own default, so
                 materials={"tower": "gold"} changes only the tower.
+            max_kw: this turbine's rated output in kW. Below max_kw_wind_speed
+                the power follows the cp curve as before; at and above it the
+                turbine holds max_kw. 0 means uncapped.
+            max_kw_wind_speed: the rated wind speed [m/s] where that ceiling
+                kicks in. Above the 28 m/s cut-out the turbine produces nothing,
+                rated or not -- see turbine_formulas.capped_power_for_length().
+
+        The rating is recorded on the hub as RatedPower / RatedWindSpeed
+        annotations, so a query can ask what a turbine is rated at the same way
+        it asks what it is made of, and SemanticWindDriver reads the same two
+        numbers off TurbineRuntime when it computes power.
 
         Every annotation is named after the body it describes, so a part can be
         found by name later: world.get_semantic_annotations_by_type(TurbinePart)
@@ -94,6 +108,12 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
 
         if rotor_blade_length == 0:
             rotor_blade_length = tower_height*(8475/15797)
+
+        if max_kw == 0:
+            max_kw = rotor_blade_length * (2240/69)
+
+        if max_kw_wind_speed == 0:
+            max_kw_wind_speed = rotor_blade_length * (12.5/69)
 
         elements_conns = []
         elements_annotations = []
@@ -170,6 +190,7 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
         elements_annotations.append(hub_annotation)
 
 
+
         # Blade 1
         blade1_box = Box(scale=Scale(blade_x, blade_y, rotor_blade_length), color=white)
         blade1_body = Body(name=PrefixedName(f"{name}_rotor_blade1"),
@@ -217,6 +238,18 @@ class WindTurbine(ActiveConnection1DOF, HasUpdateState):
                                          **mat("rotor_blade"))
         elements_conns.append(blade3_conn)
         elements_annotations.append(blade3_annotation)
+
+        # Rating, rooted at the hub -- the body that extracts the power, which is
+        # also where RotorSpeed/GeneratedPower/GeneratedEnergy live.
+        turbine_name = getattr(name, "name", str(name))
+        elements_annotations.append(
+            RatedPower(root=hub_body, turbine=turbine_name,
+                       name=PrefixedName(f"{name}_rated_power"),
+                       value=float(max_kw)))
+        elements_annotations.append(
+            RatedWindSpeed(root=hub_body, turbine=turbine_name,
+                           name=PrefixedName(f"{name}_rated_wind_speed"),
+                           value=float(max_kw_wind_speed)))
 
         # Add all to world
         for conn in elements_conns:
@@ -300,12 +333,15 @@ def main():
                 parent_T_connection=HomogeneousTransformationMatrix.from_xyz_rpy(
                     x=spec.x, y=spec.y, z=spec.z, yaw=spec.yaw),
                 materials=MATERIALS.get(spec.name),
+                max_kw=spec.max_kw,
+                max_kw_wind_speed=spec.max_kw_wind_speed,
             )
             turbine_hubs[spec.name] = {"hub": hub, "nacelle": nacelle}
             blade_length = spec.rotor_blade_length or (spec.tower_height * R_BLADE_LENGTH)
             turbine_runtimes[spec.name] = TurbineRuntime(
                 name=spec.name, hub_conn=hub, nacelle_conn=nacelle,
                 blade_length=blade_length, base_yaw_rad=spec.yaw,
+                max_kw=spec.max_kw or (spec.rotor_blade_length * R_max_kw), max_kw_wind_speed=spec.max_kw_wind_speed or (spec.rotor_blade_length * R_max_kw_wind_speed),
             )
         environment = EnvironmentAnnotations(world)
         annotate_turbines(world, turbine_runtimes)

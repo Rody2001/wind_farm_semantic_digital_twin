@@ -44,6 +44,11 @@ class TurbineRuntime:
     nacelle_conn: RevoluteConnection
     blade_length: float
     base_yaw_rad: float
+    # rating: at and above max_kw_wind_speed [m/s] this turbine holds max_kw [kW]
+    # instead of following the cp curve. 0/0 means uncapped. Above the 28 m/s
+    # cut-out the power is 0 either way. See turbine_formulas.capped_power_for_length.
+    max_kw: float = 0.0
+    max_kw_wind_speed: float = 0.0
     current_rpm: float = 0.0
     current_power: float = 0.0
     current_energy_kwh: float = 0.0
@@ -165,9 +170,12 @@ class SemanticWindDriver:
                     target_rpm = formulas.rpm_for_wind(effective_wind, t.blade_length, self.tsr)
                     rpm_step = float(np.clip(target_rpm - t.current_rpm, -max_rpm_step, max_rpm_step))
                     t.current_rpm += rpm_step
+                    # capped_power_for_length holds this turbine's rated output above
+                    # its rated wind speed, and returns 0 above the 28 m/s cut-out.
                     t.current_power = (0.0 if abs(t.current_rpm) < 1e-9 else
-                                       formulas.generated_power_for_length(
-                                           formulas.RHO, effective_wind, t.blade_length))
+                                       formulas.capped_power_for_length(
+                                           formulas.RHO, effective_wind, t.blade_length,
+                                           t.max_kw, t.max_kw_wind_speed))
                 # The same values, now as properties of the bodies they belong to,
                 # which is where every query reads them from.
                 if t.rotor_speed_ann is not None:
@@ -175,8 +183,6 @@ class SemanticWindDriver:
                     t.power_ann.set(t.current_power)
                     t.energy_ann.set(t.current_energy_kwh)
                     t.nacelle_yaw_ann.set(np.degrees(new_yaw))
-
-                omega = t.current_rpm * 2.0 * np.pi / 60.0
 
                 omega = t.current_rpm * 2.0 * np.pi / 60.0
                 hub_dof_id = t.hub_conn.raw_dof.id
@@ -244,6 +250,13 @@ class SemanticWindDriver:
                 "wind_direction_deg": direction_deg,
                 "power_w": t.current_power,
                 "energy_kwh": t.current_energy_kwh,
+                "max_kw": t.max_kw,
+                "max_kw_wind_speed": t.max_kw_wind_speed,
+                # True while this turbine is sitting on its rating rather than
+                # following the cp curve.
+                "at_rated_power": bool(
+                    t.max_kw and t.max_kw_wind_speed
+                    and t.max_kw_wind_speed <= speed < formulas.CUT_OUT_SPEED),
             }
         result = {
             "wind_speed": speed,
