@@ -48,7 +48,7 @@ FIELDS: Dict[str, Dict[str, Any]] = {
         "label": "Wind speed",
         "unit": "m/s",
         "control": "slider",
-        "min": 0.0, "max": 35.0, "step": 0.1, "decimals": 1,
+        "min": 0.0, "max": 70.0, "step": 0.1, "decimals": 1,
         "hint": "Free-stream speed at hub height",
     },
     "wind_direction": {

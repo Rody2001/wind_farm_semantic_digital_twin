@@ -17,7 +17,15 @@ Per-turbine rating (see capped_power_for_length):
 
     v < v_rated      -> P_gen as above
     v >= v_rated     -> max_kw (the turbine's rated output, held flat)
-    v >= CUT_OUT     -> 0       (the turbine shuts down)
+    v >= v_cut_out   -> 0       (the turbine shuts down)
+
+Cut-out, rating and rated speed all scale with blade length, the same way the
+geometry in wind_farm_export.py scales with tower height. The reference turbine
+is the 69 m blade, which cuts out at 28 m/s and is rated 2240 kW from 12.5 m/s:
+
+    v_cut_out = L * (28   / 69)
+    max_kw   = L * (2240 / 69)
+    v_rated   = L * (12.5 / 69)
 ===================================================================
 """
 
@@ -26,8 +34,46 @@ import numpy as np
 TSR = 4.19          # tip-speed ratio (blade-tip speed / wind speed)
 RHO = 1.225        # air density [kg/m^3] -- standard conditions, see rho_for_temperature(15.0)
 C_P = 0.45         # power coefficient (before drivetrain/other losses)
-CUT_OUT_SPEED = 28.0   # [m/s] at and above this the rotor is stopped: RPM = 0, power = 0
-KW_TO_W = 1000.0       # max_kw is given in kW; every power value here is in W
+KW_TO_W = 1000.0    # max_kw is given in kW; every power value here is in W
+
+# ---- the reference turbine every ratio below is taken from ----------- #
+REF_BLADE_LENGTH = 69.0        # [m]
+CUT_OUT_SPEED_REF = 28.0       # [m/s]  cut-out of the reference turbine
+max_kw_REF = 2240.0           # [kW]   rated output of the reference turbine
+max_kw_WIND_SPEED_REF = 12.5  # [m/s]  rated wind speed of the reference turbine
+
+R_CUT_OUT = CUT_OUT_SPEED_REF / REF_BLADE_LENGTH             # 28   / 69
+R_max_kw = max_kw_REF / REF_BLADE_LENGTH                   # 2240 / 69
+R_max_kw_WIND_SPEED = max_kw_WIND_SPEED_REF / REF_BLADE_LENGTH   # 12.5 / 69
+
+
+# ---- per-turbine ratings, all derived from blade length --------------- #
+def cut_out_for_length(blade_length: float) -> float:
+    """Cut-out wind speed [m/s]: at and above this the rotor is stopped (RPM = 0, power = 0)."""
+    return abs(blade_length) * R_CUT_OUT
+
+
+def max_kw_for_length(blade_length: float) -> float:
+    """Rated output [kW] this turbine holds once the wind reaches its rated speed."""
+    return abs(blade_length) * R_max_kw
+
+
+def max_kw_wind_speed_for_length(blade_length: float) -> float:
+    """Rated wind speed [m/s]: where the power curve flattens off at max_kw."""
+    return abs(blade_length) * R_max_kw_WIND_SPEED
+
+
+def rating_for_length(blade_length: float, max_kw: float = 0.0,
+                      max_kw_wind_speed: float = 0.0) -> tuple:
+    """Resolve (max_kw, max_kw_wind_speed) for one turbine.
+
+    0 (or None) means "derive it from the blade length", the same convention
+    rotor_blade_length=0 already uses for "derive it from the tower height".
+    Pass a non-zero value to override that turbine's rating by hand.
+    """
+    return (float(max_kw) if max_kw else max_kw_for_length(blade_length),
+            float(max_kw_wind_speed) if max_kw_wind_speed
+            else max_kw_wind_speed_for_length(blade_length))
 
 
 # ---- air density ----------------------------------------------------- #
@@ -63,9 +109,13 @@ def min_wind_speed_for_length(blade_length: float, tsr: float = TSR) -> float:
 
 
 def rpm_for_wind(wind_speed: float, blade_length: float, tsr: float = TSR) -> float:
-    """RPM = 60 * v * TSR / (pi * 2 * L); 0 below the 1-RPM cut-in speed."""
+    """RPM = 60 * v * TSR / (pi * 2 * L).
+
+    0 below the 1-RPM cut-in speed, and 0 again at and above this turbine's own
+    cut-out speed, which scales with blade length: cut_out_for_length(L).
+    """
     if (abs(wind_speed) < min_wind_speed_for_length(blade_length, tsr)
-            or abs(wind_speed) >= CUT_OUT_SPEED):
+            or abs(wind_speed) >= cut_out_for_length(blade_length)):
         return 0.0
     return (60 * wind_speed * tsr) / (np.pi * 2 * blade_length)
 
@@ -123,49 +173,43 @@ def capped_power_for_length(rho: float, wind_speed: float, blade_length: float,
     """Generated electrical power [W] for one turbine, capped at its rated output.
 
     This is the generalisation of the old hard-coded conditioned_power_out_put():
-    instead of "2240 above 12.5 m/s" for every turbine, each turbine brings its
-    own rating along (see TurbineSpec.max_kw / .max_kw_wind_speed).
+    instead of "2240 kW above 12.5 m/s, cut out at 28 m/s" for every turbine, all
+    three numbers scale with that turbine's blade length.
 
-        v >= CUT_OUT_SPEED (28 m/s)  ->  0        (rotor stopped, checked first)
-        v >= max_kw_wind_speed      ->  max_kw  (rated output, held flat)
-        otherwise                    ->  generated_power_for_length(...)
+        v >= cut_out_for_length(L)  ->  0        (rotor stopped, checked first)
+        v >= max_kw_wind_speed     ->  max_kw  (rated output, held flat)
+        otherwise                   ->  generated_power_for_length(...)
 
     Args:
-        max_kw: rated output of this turbine, in kW. 0 (or None) means the
-            turbine is uncapped and always follows the cp curve.
-        max_kw_wind_speed: rated wind speed [m/s] -- the speed at and above
-            which the turbine holds max_kw instead of following the curve.
-            0 (or None) together with a non-zero max_kw means "cap from the
-            moment the curve would exceed the rating", i.e. a plain ceiling.
+        max_kw: rated output [kW]. 0 (or None) derives it from the blade
+            length: L * (2240 / 69).
+        max_kw_wind_speed: rated wind speed [m/s]. 0 (or None) derives it from
+            the blade length: L * (12.5 / 69).
 
     Returns W, like every other power function in this module, so max_kw is
     multiplied by KW_TO_W on the way out.
     """
     v = abs(wind_speed)
-    if v >= CUT_OUT_SPEED:
+    if v >= cut_out_for_length(blade_length):
         return 0.0
 
-    curve_w = generated_power_for_length(rho, wind_speed, blade_length, c_p)
-    if not max_kw:                      # 0 / None -> uncapped, curve only
-        return curve_w
-
-    rated_w = float(max_kw) * KW_TO_W
-    if max_kw_wind_speed:
-        return rated_w if v >= float(max_kw_wind_speed) else curve_w
-    return min(curve_w, rated_w)         # no rated speed given -> plain ceiling
+    max_kw, rated_v = rating_for_length(blade_length, max_kw, max_kw_wind_speed)
+    if v >= rated_v:
+        return max_kw * KW_TO_W
+    return generated_power_for_length(rho, wind_speed, blade_length, c_p)
 
 
 def conditioned_power_out_put(rho: float, wind_speed: float, blade_length: float,
                                c_p: float = None) -> float:
-    """Backwards-compatible shim: the old fixed 2240 / 12.5 m/s rating.
+    """Backwards-compatible shim: the old fixed 2240 kW / 12.5 m/s / 28 m/s numbers.
 
-    Superseded by capped_power_for_length(), which takes the rating per turbine.
-    Kept so older call sites keep working; note it returns the raw 2240 (not
-    2240 kW in W) exactly as before.
+    Superseded by capped_power_for_length(), where all three scale with blade
+    length. Kept so older call sites keep working; note it returns the raw 2240
+    (not 2240 kW in W) exactly as before, and ignores blade length entirely.
     """
     v = abs(wind_speed)
-    if v >= CUT_OUT_SPEED:
+    if v >= CUT_OUT_SPEED_REF:
         return 0.0
-    if v >= 12.5:
-        return 2240.0
+    if v >= max_kw_WIND_SPEED_REF:
+        return max_kw_REF
     return generated_power_for_length(rho, wind_speed, blade_length, c_p)

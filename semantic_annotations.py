@@ -220,7 +220,8 @@ class GeneratedEnergy(MeasuredBodyScalar):
 @dataclass(eq=False)
 class RatedPower(MeasuredBodyScalar):
     """Rated output of this turbine: the ceiling GeneratedPower is held at once
-    the wind reaches RatedWindSpeed. 0 means the turbine is uncapped.
+    the wind reaches RatedWindSpeed. Derived from blade length as
+    L * (2240 / 69) unless the turbine was created with an explicit max_kw.
 
     Written once by WindTurbine.create_with_new_body_in_world(max_kw=...) --
     unlike the measured annotations above, nothing rewrites it every tick.
@@ -231,5 +232,12 @@ class RatedPower(MeasuredBodyScalar):
 @dataclass(eq=False)
 class RatedWindSpeed(MeasuredBodyScalar):
     """Wind speed at and above which this turbine holds RatedPower instead of
-    following the cp curve. Above the 28 m/s cut-out it produces nothing."""
+    following the cp curve: blade length * (12.5 / 69)."""
+    unit: str = field(default="m/s", kw_only=True)
+
+
+@dataclass(eq=False)
+class CutOutWindSpeed(MeasuredBodyScalar):
+    """Wind speed at and above which this turbine shuts down -- rotor stopped,
+    no power at all: blade length * (28 / 69)."""
     unit: str = field(default="m/s", kw_only=True)

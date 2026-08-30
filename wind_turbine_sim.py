@@ -240,8 +240,9 @@ class QueryDriver:
             cp = formulas.cp_for_wind(v) if self.c_p is None else self.c_p
             max_kw, rated_v = self.rating(name)
             # capped_power_for_length holds the rated output above rated_v and
-            # returns 0 above the 28 m/s cut-out; unrated turbines fall through
-            # to the plain cp curve, exactly as before.
+            # returns 0 above this rotor's own cut-out speed, D * (28 / 69).
+            # A turbine with no <numeric> entry (older scene) passes 0/0 and gets
+            # its rating derived from D in there instead -- same numbers either way.
             power = (formulas.capped_power_for_length(self.rho, v, D, max_kw, rated_v, self.c_p)
                      if rpm != 0 else 0.0)
             rows.append((k, rpm, power, cp))

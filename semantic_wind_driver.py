@@ -44,11 +44,13 @@ class TurbineRuntime:
     nacelle_conn: RevoluteConnection
     blade_length: float
     base_yaw_rad: float
-    # rating: at and above max_kw_wind_speed [m/s] this turbine holds max_kw [kW]
-    # instead of following the cp curve. 0/0 means uncapped. Above the 28 m/s
-    # cut-out the power is 0 either way. See turbine_formulas.capped_power_for_length.
+    # Rating: at and above max_kw_wind_speed [m/s] this turbine holds max_kw [kW]
+    # instead of following the cp curve; at and above cut_out_speed it produces
+    # nothing. All three are derived from blade_length when left at 0 -- see
+    # __post_init__ and turbine_formulas.rating_for_length().
     max_kw: float = 0.0
     max_kw_wind_speed: float = 0.0
+    cut_out_speed: float = 0.0
     current_rpm: float = 0.0
     current_power: float = 0.0
     current_energy_kwh: float = 0.0
@@ -57,6 +59,17 @@ class TurbineRuntime:
     nacelle_yaw_ann: object = None
     power_ann: object = None
     energy_ann: object = None
+
+    def __post_init__(self):
+        """Fill in whatever rating the caller left at 0, from the blade length.
+
+        Doing it once here means every query (status(), at_rated_power, ...) sees
+        the real numbers instead of a placeholder 0, whoever built the runtime.
+        """
+        self.max_kw, self.max_kw_wind_speed = formulas.rating_for_length(
+            self.blade_length, self.max_kw, self.max_kw_wind_speed)
+        if not self.cut_out_speed:
+            self.cut_out_speed = formulas.cut_out_for_length(self.blade_length)
 
 
 def _wrap_to_pi(angle: float) -> float:
@@ -171,7 +184,8 @@ class SemanticWindDriver:
                     rpm_step = float(np.clip(target_rpm - t.current_rpm, -max_rpm_step, max_rpm_step))
                     t.current_rpm += rpm_step
                     # capped_power_for_length holds this turbine's rated output above
-                    # its rated wind speed, and returns 0 above the 28 m/s cut-out.
+                    # its rated wind speed, and returns 0 above its own cut-out
+                    # speed -- both scaled to this turbine's blade length.
                     t.current_power = (0.0 if abs(t.current_rpm) < 1e-9 else
                                        formulas.capped_power_for_length(
                                            formulas.RHO, effective_wind, t.blade_length,
@@ -252,11 +266,10 @@ class SemanticWindDriver:
                 "energy_kwh": t.current_energy_kwh,
                 "max_kw": t.max_kw,
                 "max_kw_wind_speed": t.max_kw_wind_speed,
+                "cut_out_speed": t.cut_out_speed,
                 # True while this turbine is sitting on its rating rather than
                 # following the cp curve.
-                "at_rated_power": bool(
-                    t.max_kw and t.max_kw_wind_speed
-                    and t.max_kw_wind_speed <= speed < formulas.CUT_OUT_SPEED),
+                "at_rated_power": bool(t.max_kw_wind_speed <= speed < t.cut_out_speed),
             }
         result = {
             "wind_speed": speed,

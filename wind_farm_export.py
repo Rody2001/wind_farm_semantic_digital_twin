@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from history_file import clear_history
+import turbine_formulas as formulas   # shared ratios: cut-out / max_kw / rated speed
 
 PITCH_DEG = 18.0
 
@@ -14,8 +15,6 @@ R_NACELLE_HEIGHT = 678  / 15797
 R_BLADE_LENGTH   = 8475 / 15797
 R_BLADE_X        = 0.04 / 5
 R_BLADE_Y        = 0.18 / 5
-R_max_kw         = 2240.0 / 69.0
-R_max_kw_wind_speed = 12.5 / 69.0
 
 # How large one tile of the ground texture should be, in metres. Deriving the
 # texture repeat from this keeps a tile the same real-world size whatever the
@@ -30,8 +29,16 @@ class TurbineSpec:
 
     max_kw / max_kw_wind_speed are this turbine's rating: at and above
     max_kw_wind_speed [m/s] it holds max_kw [kW] instead of following the cp
-    curve; above the 28 m/s cut-out it produces nothing at all. Leave both at 0
-    for an uncapped turbine. See turbine_formulas.capped_power_for_length().
+    curve; at and above its cut-out speed it produces nothing at all.
+
+    Leave both at 0 -- the usual case -- and they are derived from the blade
+    length, exactly like rotor_blade_length=0 derives the blade from the tower:
+
+        max_kw            = L * (2240 / 69)
+        max_kw_wind_speed = L * (12.5 / 69)
+        cut-out            = L * (28   / 69)   (always derived, see formulas)
+
+    Set either one to override that turbine's rating by hand.
     """
     name: str; tower_height: float
     x: float=0.0; y: float=0.0; z: float=0.1; yaw: float=0.0; rotor_blade_length: float=0.0
@@ -42,10 +49,9 @@ class TurbineSpec:
 # SINGLE SOURCE OF TRUTH
 # ===================================================================
 WIND_FARM_SINGLE: list[TurbineSpec] = [
-    # rated 2240 kW from 12.5 m/s upwards -- the numbers the old hard-coded
-    # conditioned_power_out_put() used, now per turbine.
-    TurbineSpec("1", tower_height=131.0, x=100, y=0,  z=0.1, rotor_blade_length=69,
-                max_kw=2240.0, max_kw_wind_speed=12.5),
+    # 69 m blade -> the reference turbine: 2240 kW from 12.5 m/s, cut-out 28 m/s,
+    # all three derived from the blade length. Add max_kw=... to override.
+    TurbineSpec("1", tower_height=131.0, x=100, y=0,  z=0.1, rotor_blade_length=69),
 ]
 WIND_FARM_East: list[TurbineSpec] = [
     TurbineSpec("1", tower_height=131.0, x=100, y=0,  z=0.1, rotor_blade_length=69.125),
@@ -312,14 +318,22 @@ def _ratings_xml(specs: list[TurbineSpec]) -> str:
     max_kw_wind_speed) lets wind_turbine_sim.py's QueryDriver cap exactly the
     same turbines at exactly the same speeds as the semantic world does, without
     the sim having to know which farms this XML was built from.
+
+    The values are resolved here (blade-length ratio, or the spec's override) so
+    the sim uses the spec's blade length rather than re-deriving one from the
+    mesh bounding box, which can differ by a few centimetres. Cut-out is not
+    written out: it follows from the blade length alone, which the sim already
+    measures per rotor.
     """
-    rated = [s for s in specs if s.max_kw]
-    if not rated:
+    if not specs:
         return ""
-    entries = "\n    ".join(
-        f'<numeric name="{s.name}_rating" '
-        f'data="{_f(s.max_kw)} {_f(s.max_kw_wind_speed)}"/>'
-        for s in rated)
+    rows = []
+    for s in specs:
+        L = s.rotor_blade_length or (s.tower_height * R_BLADE_LENGTH)
+        max_kw, rated_v = formulas.rating_for_length(L, s.max_kw, s.max_kw_wind_speed)
+        rows.append(f'<numeric name="{s.name}_rating" '
+                    f'data="{_f(max_kw)} {_f(rated_v)}"/>')
+    entries = "\n    ".join(rows)
     return f"\n  <custom>\n    {entries}\n  </custom>\n"
 
 
